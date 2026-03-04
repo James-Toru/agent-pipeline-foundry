@@ -2,7 +2,7 @@
 
 A Pipeline Factory that transforms natural language business workflow descriptions into complete, production-grade multi-agent pipeline specifications. Built with Next.js, Anthropic Claude, and Supabase.
 
-Agent Foundry is **not** an agent framework like CrewAI or AutoGen. It is **not** a drag-and-drop tool like Zapier or n8n. It is a system that generates the blueprints for entire multi-agent systems from a single natural language input, then executes them with real tool integrations.
+It is a system that generates the blueprints for entire multi-agent systems from a single natural language input, then executes them with real tool integrations.
 
 ## How It Works
 
@@ -234,6 +234,3 @@ Configure these in the Settings page (`/settings`) or directly in `.env.local`:
 | Weekly Competitor Monitor | Research | 3 |
 | Content Publishing Pipeline | Marketing | 4 |
 
-## License
-
-Internal tool for TYTOS GmbH.
