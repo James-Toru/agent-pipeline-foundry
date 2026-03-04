@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install @anthropic-ai/sdk @supabase/supabase-js @supabase/ssr react-flow-renderer uuid zod)",
+      "Bash(npm install @anthropic-ai/sdk @supabase/supabase-js @supabase/ssr @xyflow/react uuid zod)",
+      "Bash(npm install -D @types/uuid supabase)",
+      "Bash(npm ls @anthropic-ai/sdk @supabase/supabase-js @supabase/ssr @xyflow/react uuid zod @types/uuid supabase)",
+      "Bash(ls node_modules/@xyflow/react/dist/esm/*.d.*)"
+    ]
+  }
+}
