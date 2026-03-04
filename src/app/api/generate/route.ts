@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generatePipeline } from "@/lib/meta-agent";
+import { checkRateLimit, GENERATE_LIMIT } from "@/lib/rate-limiter";
 
 export async function POST(request: NextRequest) {
   try {
+    const rl = checkRateLimit("generate", GENERATE_LIMIT);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: `Rate limit exceeded. Try again in ${rl.resetInSeconds}s.` },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": rl.resetInSeconds.toString(),
+            "X-RateLimit-Remaining": "0",
+          },
+        }
+      );
+    }
+
     const body = await request.json();
     const { input } = body;
 

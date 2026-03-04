@@ -51,14 +51,6 @@ export default function RunsListPage() {
     fetchRuns();
   }, []);
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
       <div className="mx-auto max-w-4xl">
@@ -67,7 +59,16 @@ export default function RunsListPage() {
           All pipeline executions and their statuses.
         </p>
 
-        {runs.length === 0 ? (
+        {isLoading ? (
+          <div className="mt-6 space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-16 animate-pulse rounded-lg border border-zinc-800 bg-zinc-900"
+              />
+            ))}
+          </div>
+        ) : runs.length === 0 ? (
           <div className="mt-12 text-center">
             <p className="text-zinc-500">No runs yet.</p>
             <Link

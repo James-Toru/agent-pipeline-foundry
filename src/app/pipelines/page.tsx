@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { PipelineRecord } from "@/types/pipeline";
 
 function formatDate(dateStr: string) {
@@ -12,41 +13,58 @@ function formatDate(dateStr: string) {
   });
 }
 
-function PipelineCard({ pipeline }: { pipeline: PipelineRecord }) {
+function PipelineCard({
+  pipeline,
+  onDuplicate,
+}: {
+  pipeline: PipelineRecord;
+  onDuplicate: (id: string) => void;
+}) {
   return (
-    <Link
-      href={`/pipelines/${pipeline.id}`}
-      className="group block rounded-lg border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-600"
-    >
-      <h3 className="text-base font-medium text-white group-hover:text-zinc-200">
-        {pipeline.name}
-      </h3>
-      {pipeline.description && (
-        <p className="mt-1.5 line-clamp-2 text-sm text-zinc-400">
-          {pipeline.description}
-        </p>
-      )}
-      <div className="mt-4 flex items-center gap-3 text-xs text-zinc-500">
-        <span>{pipeline.spec.agents.length} agents</span>
-        <span className="text-zinc-700">|</span>
-        {pipeline.spec.triggers.map((t) => (
-          <span
-            key={t}
-            className="rounded-full bg-zinc-800 px-2 py-0.5 text-zinc-400"
-          >
-            {t}
-          </span>
-        ))}
-        <span className="ml-auto">{formatDate(pipeline.created_at)}</span>
+    <div className="group rounded-lg border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-600">
+      <Link href={`/pipelines/${pipeline.id}`}>
+        <h3 className="text-base font-medium text-white group-hover:text-zinc-200">
+          {pipeline.name}
+        </h3>
+        {pipeline.description && (
+          <p className="mt-1.5 line-clamp-2 text-sm text-zinc-400">
+            {pipeline.description}
+          </p>
+        )}
+        <div className="mt-4 flex items-center gap-3 text-xs text-zinc-500">
+          <span>{pipeline.spec.agents.length} agents</span>
+          <span className="text-zinc-700">|</span>
+          {pipeline.spec.triggers.map((t) => (
+            <span
+              key={t}
+              className="rounded-full bg-zinc-800 px-2 py-0.5 text-zinc-400"
+            >
+              {t}
+            </span>
+          ))}
+          <span className="ml-auto">{formatDate(pipeline.created_at)}</span>
+        </div>
+      </Link>
+      <div className="mt-3 flex items-center justify-between">
+        <Link
+          href={`/pipelines/${pipeline.id}`}
+          className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
+        >
+          Inspect &rarr;
+        </Link>
+        <button
+          onClick={() => onDuplicate(pipeline.id)}
+          className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+        >
+          Duplicate
+        </button>
       </div>
-      <div className="mt-3 text-xs font-medium text-zinc-500 group-hover:text-zinc-300">
-        Inspect &rarr;
-      </div>
-    </Link>
+    </div>
   );
 }
 
 export default function PipelinesPage() {
+  const router = useRouter();
   const [pipelines, setPipelines] = useState<PipelineRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +84,17 @@ export default function PipelinesPage() {
     }
     fetchPipelines();
   }, []);
+
+  async function handleDuplicate(id: string) {
+    try {
+      const res = await fetch(`/api/pipelines/${id}`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to duplicate");
+      const data = await res.json();
+      router.push(`/pipelines/${data.pipeline.id}`);
+    } catch (err) {
+      console.error("Duplicate failed:", err);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -114,7 +143,7 @@ export default function PipelinesPage() {
         {!isLoading && pipelines.length > 0 && (
           <div className="grid gap-4 sm:grid-cols-2">
             {pipelines.map((p) => (
-              <PipelineCard key={p.id} pipeline={p} />
+              <PipelineCard key={p.id} pipeline={p} onDuplicate={handleDuplicate} />
             ))}
           </div>
         )}

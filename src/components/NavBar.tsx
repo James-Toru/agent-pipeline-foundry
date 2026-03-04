@@ -33,6 +33,16 @@ export default function NavBar() {
           Pipelines
         </Link>
         <Link
+          href="/templates"
+          className={`text-sm transition-colors ${
+            pathname.startsWith("/templates")
+              ? "text-white"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Templates
+        </Link>
+        <Link
           href="/runs"
           className={`text-sm transition-colors ${
             pathname.startsWith("/runs")
@@ -41,6 +51,26 @@ export default function NavBar() {
           }`}
         >
           Runs
+        </Link>
+        <Link
+          href="/analytics"
+          className={`text-sm transition-colors ${
+            pathname.startsWith("/analytics")
+              ? "text-white"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Analytics
+        </Link>
+        <Link
+          href="/settings"
+          className={`text-sm transition-colors ${
+            pathname.startsWith("/settings")
+              ? "text-white"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Settings
         </Link>
       </div>
     </nav>

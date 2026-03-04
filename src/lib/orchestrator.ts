@@ -2,9 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
 import { getToolsForAgent } from "@/lib/tool-registry";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { MCPClientManager, INTERNAL_TOOLS } from "@/lib/mcp-client-manager";
+import { sendErrorAlert, classifySeverity } from "@/lib/error-alerting";
 import type {
   PipelineSpec,
   AgentSpec,
+  ToolId,
   OnFailurePolicy,
   PipelineRunStatus,
   AgentMessageStatus,
@@ -14,11 +17,19 @@ type MessageParam = Anthropic.MessageParam;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+interface TokenUsageRecord {
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  model: string;
+}
+
 interface AgentResult {
   agent_id: string;
   status: "completed" | "failed";
   output: Record<string, unknown> | null;
   error: string | null;
+  token_usage?: TokenUsageRecord;
 }
 
 interface RunContext {
@@ -26,6 +37,29 @@ interface RunContext {
   pipeline: PipelineSpec;
   input_data: Record<string, unknown>;
   agent_outputs: Map<string, Record<string, unknown>>;
+  mcpManager: MCPClientManager;
+}
+
+// ── Token Cost Calculation ──────────────────────────────────────────────────
+
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  // Pricing per million tokens (USD)
+  "claude-sonnet-4-5-20250929": { input: 3, output: 15 },
+  "claude-sonnet-4-5-latest": { input: 3, output: 15 },
+  "claude-haiku-4-5-20251001": { input: 0.8, output: 4 },
+  "claude-opus-4-6": { input: 15, output: 75 },
+};
+
+function calculateCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number
+): number {
+  const pricing = MODEL_PRICING[model] ?? { input: 3, output: 15 };
+  return (
+    (inputTokens / 1_000_000) * pricing.input +
+    (outputTokens / 1_000_000) * pricing.output
+  );
 }
 
 // ── Database Helpers ─────────────────────────────────────────────────────────
@@ -120,6 +154,190 @@ async function waitForApproval(
   return "timeout";
 }
 
+async function recordTokenUsage(
+  run_id: string,
+  agent_id: string,
+  usage: TokenUsageRecord
+) {
+  const supabase = await createSupabaseServerClient();
+  await supabase.from("token_usage").insert({
+    run_id,
+    agent_id,
+    input_tokens: usage.input_tokens,
+    output_tokens: usage.output_tokens,
+    cost_usd: usage.cost_usd,
+    model: usage.model,
+  });
+}
+
+async function updateRunAnalytics(
+  run_id: string,
+  total_tokens: number,
+  total_cost_usd: number,
+  duration_ms: number
+) {
+  const supabase = await createSupabaseServerClient();
+  await supabase
+    .from("pipeline_runs")
+    .update({ total_tokens, total_cost_usd, duration_ms })
+    .eq("id", run_id);
+}
+
+// ── Internal Tool Handlers ──────────────────────────────────────────────────
+
+async function handleInternalTool(
+  toolName: string,
+  input: Record<string, unknown>,
+  ctx: RunContext
+): Promise<string> {
+  switch (toolName) {
+    case "human_approval_request": {
+      const approvalId = await createApprovalRequest(
+        ctx.run_id,
+        "system",
+        (input.message as string) ?? "Approval requested",
+        (input.context as Record<string, unknown>) ?? {}
+      );
+      return JSON.stringify({
+        status: "approval_requested",
+        approval_id: approvalId,
+        message: "Approval request created. Pipeline will pause until reviewed.",
+      });
+    }
+
+    case "pipeline_notify": {
+      const supabase = await createSupabaseServerClient();
+      await supabase.from("agent_messages").insert({
+        run_id: ctx.run_id,
+        agent_id: "system_notification",
+        status: "completed",
+        input: null,
+        output: {
+          title: input.title,
+          message: input.message,
+          level: input.level ?? "info",
+        },
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      });
+      return JSON.stringify({
+        status: "notified",
+        message: `Notification sent: ${input.title}`,
+      });
+    }
+
+    case "schedule_trigger": {
+      const supabase = await createSupabaseServerClient();
+      await supabase.from("pipeline_scheduled_triggers").insert({
+        pipeline_id: input.pipeline_id,
+        cron_expression: (input.cron as string) ?? "0 * * * *",
+        input_data: (input.payload as Record<string, unknown>) ?? {},
+        is_active: true,
+        next_run_at: (input.trigger_at as string) ?? new Date().toISOString(),
+      });
+      return JSON.stringify({
+        status: "scheduled",
+        message: `Trigger scheduled for pipeline ${input.pipeline_id}`,
+      });
+    }
+
+    case "supabase_read": {
+      const supabase = await createSupabaseServerClient();
+      const table = input.table as string;
+      let query = supabase
+        .from(table)
+        .select((input.select as string) ?? "*");
+
+      if (input.filters && typeof input.filters === "object") {
+        for (const [key, value] of Object.entries(
+          input.filters as Record<string, unknown>
+        )) {
+          query = query.eq(key, value);
+        }
+      }
+      if (input.order_by) {
+        query = query.order(input.order_by as string, {
+          ascending: (input.ascending as boolean) ?? true,
+        });
+      }
+      if (input.limit) {
+        query = query.limit(input.limit as number);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        return JSON.stringify({ status: "error", error: error.message });
+      }
+      return JSON.stringify({ status: "success", data, count: data?.length ?? 0 });
+    }
+
+    case "supabase_write": {
+      const supabase = await createSupabaseServerClient();
+      const table = input.table as string;
+      const action = input.action as string;
+      const data = input.data as Record<string, unknown>;
+
+      let result;
+      switch (action) {
+        case "insert":
+          result = await supabase.from(table).insert(data).select();
+          break;
+        case "update":
+          if (input.match && typeof input.match === "object") {
+            let query = supabase.from(table).update(data);
+            for (const [key, value] of Object.entries(
+              input.match as Record<string, unknown>
+            )) {
+              query = query.eq(key, value);
+            }
+            result = await query.select();
+          } else {
+            return JSON.stringify({
+              status: "error",
+              error: "match criteria required for update",
+            });
+          }
+          break;
+        case "upsert":
+          result = await supabase.from(table).upsert(data).select();
+          break;
+        case "delete":
+          if (input.match && typeof input.match === "object") {
+            let query = supabase.from(table).delete();
+            for (const [key, value] of Object.entries(
+              input.match as Record<string, unknown>
+            )) {
+              query = query.eq(key, value);
+            }
+            result = await query.select();
+          } else {
+            return JSON.stringify({
+              status: "error",
+              error: "match criteria required for delete",
+            });
+          }
+          break;
+        default:
+          return JSON.stringify({
+            status: "error",
+            error: `Unknown action: ${action}`,
+          });
+      }
+
+      if (result.error) {
+        return JSON.stringify({ status: "error", error: result.error.message });
+      }
+      return JSON.stringify({ status: "success", data: result.data });
+    }
+
+    default:
+      return JSON.stringify({
+        status: "error",
+        error: `Unknown internal tool: ${toolName}`,
+      });
+  }
+}
+
 // ── Topological Sort ─────────────────────────────────────────────────────────
 
 function topologicalSort(spec: PipelineSpec): string[][] {
@@ -149,7 +367,6 @@ function topologicalSort(spec: PipelineSpec): string[][] {
   let queue = [...agents].filter((id) => inDegree.get(id) === 0);
 
   while (queue.length > 0) {
-    // Group parallel agents in the same layer
     const layer: string[] = [];
     const nextQueue: string[] = [];
 
@@ -176,7 +393,9 @@ function topologicalSort(spec: PipelineSpec): string[][] {
         const groupIds = layer.filter((lid) => pg.has(lid));
         if (
           !parallelInLayer.some(
-            (g) => g.length === groupIds.length && g.every((x) => groupIds.includes(x))
+            (g) =>
+              g.length === groupIds.length &&
+              g.every((x) => groupIds.includes(x))
           )
         ) {
           parallelInLayer.push(groupIds);
@@ -186,7 +405,6 @@ function topologicalSort(spec: PipelineSpec): string[][] {
       }
     }
 
-    // Add sequential agents as individual layers, parallel groups as one layer
     for (const id of sequential) {
       if (!parallelInLayer.some((g) => g.includes(id))) {
         layers.push([id]);
@@ -211,13 +429,11 @@ async function executeAgent(
   // Collect inputs from upstream agent outputs
   const agentInput: Record<string, unknown> = {};
   for (const key of Object.keys(agentSpec.inputs)) {
-    // Look through all upstream outputs for this key
     for (const [, outputs] of ctx.agent_outputs) {
       if (key in outputs) {
         agentInput[key] = outputs[key];
       }
     }
-    // Also pull from pipeline input_data
     if (key in ctx.input_data && !(key in agentInput)) {
       agentInput[key] = ctx.input_data[key];
     }
@@ -234,14 +450,14 @@ async function executeAgent(
     const client = createAnthropicClient();
     const tools = getToolsForAgent(agentSpec.tools);
 
-    // Build the user message with input context
     const userMessage = `You are executing as part of an automated pipeline. Here is your input data:\n\n${JSON.stringify(agentInput, null, 2)}\n\nProcess this input according to your instructions and produce structured JSON output.`;
 
-    // Enforce timeout
     const timeoutMs = agentSpec.guardrails.max_runtime_seconds * 1000;
 
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
     const agentCall = async () => {
-      // Tool-use loop: keep calling until we get a final text response or hit limits
       const messages: MessageParam[] = [
         { role: "user", content: userMessage },
       ];
@@ -261,18 +477,21 @@ async function executeAgent(
           ...(tools.length > 0 ? { tools } : {}),
         });
 
-        // Check if we got a tool use block
+        // Accumulate token usage from this API call
+        if (response.usage) {
+          totalInputTokens += response.usage.input_tokens;
+          totalOutputTokens += response.usage.output_tokens;
+        }
+
         const toolUseBlocks = response.content.filter(
           (b) => b.type === "tool_use"
         );
 
         if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {
-          // Extract final text response
           const textBlock = response.content.find((b) => b.type === "text");
           const rawOutput =
             textBlock && textBlock.type === "text" ? textBlock.text : "";
 
-          // Try to parse as JSON output
           let output: Record<string, unknown>;
           try {
             let jsonStr = rawOutput.trim();
@@ -293,28 +512,48 @@ async function executeAgent(
           return output;
         }
 
-        // Simulate tool calls — in production these would call real MCP servers
-        // For now, return simulated results and continue the loop
+        // Process tool calls via MCP or internal handlers
         const assistantContent: Anthropic.ContentBlock[] = response.content;
-
         messages.push({ role: "assistant", content: assistantContent });
 
-        // Build tool results
-        const toolResults: Anthropic.ToolResultBlockParam[] = toolUseBlocks
-          .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
-          .map((b) => ({
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+        for (const block of toolUseBlocks) {
+          if (block.type !== "tool_use") continue;
+
+          const toolId = block.name as ToolId;
+          const toolInput = (block.input ?? {}) as Record<string, unknown>;
+          let resultContent: string;
+
+          if (INTERNAL_TOOLS.has(toolId)) {
+            // Handle internally — bypass MCP
+            resultContent = await handleInternalTool(toolId, toolInput, ctx);
+          } else {
+            // Execute via MCP client manager
+            const mcpResult = await ctx.mcpManager.executeTool(
+              toolId,
+              toolInput
+            );
+            if (mcpResult.success) {
+              resultContent = mcpResult.result;
+            } else {
+              console.warn(
+                `[Orchestrator] MCP fallback used for "${toolId}": ${mcpResult.error}`
+              );
+              resultContent = mcpResult.fallback;
+            }
+          }
+
+          toolResults.push({
             type: "tool_result" as const,
-            tool_use_id: b.id,
-            content: JSON.stringify({
-              status: "success",
-              data: { message: `Simulated result for ${b.name}`, input: b.input },
-            }),
-          }));
+            tool_use_id: block.id,
+            content: resultContent,
+          });
+        }
 
         messages.push({ role: "user", content: toolResults });
       }
 
-      // If we exhausted iterations, return what we have
       return { raw_output: "Agent reached maximum tool-call iterations" };
     };
 
@@ -331,6 +570,18 @@ async function executeAgent(
 
     const output = result as Record<string, unknown>;
 
+    // Build token usage record
+    const costUsd = calculateCost(ANTHROPIC_MODEL, totalInputTokens, totalOutputTokens);
+    const tokenUsage: TokenUsageRecord = {
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+      cost_usd: costUsd,
+      model: ANTHROPIC_MODEL,
+    };
+
+    // Record token usage to database
+    await recordTokenUsage(ctx.run_id, agentSpec.agent_id, tokenUsage);
+
     await updateAgentMessage(messageId, {
       status: "completed",
       output,
@@ -342,6 +593,7 @@ async function executeAgent(
       status: "completed",
       output,
       error: null,
+      token_usage: tokenUsage,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : "Unknown agent error";
@@ -375,7 +627,6 @@ async function handleApprovalGate(
     agentOutput
   );
 
-  // Update agent message to awaiting_approval
   const supabase = await createSupabaseServerClient();
   await supabase
     .from("agent_messages")
@@ -385,10 +636,8 @@ async function handleApprovalGate(
     .order("started_at", { ascending: false })
     .limit(1);
 
-  // Pause the run
   await updateRunStatus(ctx.run_id, "paused");
 
-  // Wait for approval (timeout = agent's max_runtime_seconds, min 300s for human response)
   const timeout = Math.max(agentSpec.guardrails.max_runtime_seconds, 300);
   const decision = await waitForApproval(approvalId, timeout);
 
@@ -410,7 +659,6 @@ async function applyFailurePolicy(
   switch (policy) {
     case "retry_3x_then_notify":
       if (attempt < 3) return "retry";
-      // After 3 retries, notify and skip
       await createAgentMessage(ctx.run_id, agentSpec.agent_id, "failed", null);
       return "skip";
 
@@ -452,7 +700,6 @@ async function executeAgentWithRetry(
     agentSpec.on_failure === "retry_3x_then_notify" ? 3 : 1;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // Exponential backoff for retries
     if (attempt > 0) {
       const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -461,7 +708,6 @@ async function executeAgentWithRetry(
     const result = await executeAgent(agentSpec, ctx);
 
     if (result.status === "completed") {
-      // Handle approval gate
       if (agentSpec.requires_approval && result.output) {
         const decision = await handleApprovalGate(agentSpec, result.output, ctx);
         if (decision === "rejected" || decision === "timeout") {
@@ -477,7 +723,6 @@ async function executeAgentWithRetry(
         }
       }
 
-      // Store output for downstream agents
       if (result.output) {
         ctx.agent_outputs.set(agentSpec.agent_id, result.output);
       }
@@ -485,7 +730,6 @@ async function executeAgentWithRetry(
       return result;
     }
 
-    // Agent failed — apply failure policy
     const action = await applyFailurePolicy(
       agentSpec.on_failure,
       agentSpec,
@@ -522,56 +766,107 @@ export async function runPipeline(
   pipeline: PipelineSpec,
   input_data: Record<string, unknown>
 ): Promise<void> {
+  // Collect all tool IDs and start needed MCP servers
+  const allToolIds = pipeline.agents.flatMap((a) => a.tools);
+  const mcpManager = new MCPClientManager();
+
+  try {
+    await mcpManager.startServersForRun(allToolIds);
+  } catch (err) {
+    console.error("[Orchestrator] MCP startup error (continuing with fallbacks):", err);
+  }
+
   const ctx: RunContext = {
     run_id,
     pipeline,
     input_data,
     agent_outputs: new Map(),
+    mcpManager,
   };
 
-  await updateRunStatus(run_id, "running");
+  const startTime = Date.now();
+  let runTotalTokens = 0;
+  let runTotalCost = 0;
 
-  const agentMap = new Map(pipeline.agents.map((a) => [a.agent_id, a]));
-  const layers = topologicalSort(pipeline);
+  try {
+    await updateRunStatus(run_id, "running");
 
-  for (const layer of layers) {
-    if (layer.length === 0) continue;
+    const agentMap = new Map(pipeline.agents.map((a) => [a.agent_id, a]));
+    const layers = topologicalSort(pipeline);
 
-    const agents = layer
-      .map((id) => agentMap.get(id))
-      .filter((a): a is AgentSpec => a !== undefined);
+    for (const layer of layers) {
+      if (layer.length === 0) continue;
 
-    if (agents.length === 0) continue;
+      const agents = layer
+        .map((id) => agentMap.get(id))
+        .filter((a): a is AgentSpec => a !== undefined);
 
-    if (agents.length === 1) {
-      // Sequential execution
-      const result = await executeAgentWithRetry(agents[0], ctx);
+      if (agents.length === 0) continue;
 
-      if (
-        result.status === "failed" &&
-        agents[0].on_failure === "halt_pipeline"
-      ) {
-        await updateRunStatus(run_id, "failed", new Date().toISOString());
-        return;
-      }
-    } else {
-      // Parallel execution with Promise.all
-      const results = await Promise.all(
-        agents.map((a) => executeAgentWithRetry(a, ctx))
-      );
+      if (agents.length === 1) {
+        const result = await executeAgentWithRetry(agents[0], ctx);
 
-      // Check if any critical agent failed with halt policy
-      for (let i = 0; i < results.length; i++) {
-        if (
-          results[i].status === "failed" &&
-          agents[i].on_failure === "halt_pipeline"
-        ) {
-          await updateRunStatus(run_id, "failed", new Date().toISOString());
-          return;
+        if (result.token_usage) {
+          runTotalTokens += result.token_usage.input_tokens + result.token_usage.output_tokens;
+          runTotalCost += result.token_usage.cost_usd;
+        }
+
+        if (result.status === "failed") {
+          const severity = classifySeverity(agents[0].on_failure, agents[0].on_failure === "halt_pipeline");
+          await sendErrorAlert({
+            run_id,
+            pipeline_name: pipeline.name,
+            agent_id: result.agent_id,
+            error_message: result.error ?? "Unknown error",
+            severity,
+          });
+
+          if (agents[0].on_failure === "halt_pipeline") {
+            const durationMs = Date.now() - startTime;
+            await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
+            await updateRunStatus(run_id, "failed", new Date().toISOString());
+            return;
+          }
+        }
+      } else {
+        const results = await Promise.all(
+          agents.map((a) => executeAgentWithRetry(a, ctx))
+        );
+
+        for (const result of results) {
+          if (result.token_usage) {
+            runTotalTokens += result.token_usage.input_tokens + result.token_usage.output_tokens;
+            runTotalCost += result.token_usage.cost_usd;
+          }
+        }
+
+        for (let i = 0; i < results.length; i++) {
+          if (results[i].status === "failed") {
+            const severity = classifySeverity(agents[i].on_failure, agents[i].on_failure === "halt_pipeline");
+            await sendErrorAlert({
+              run_id,
+              pipeline_name: pipeline.name,
+              agent_id: results[i].agent_id,
+              error_message: results[i].error ?? "Unknown error",
+              severity,
+            });
+
+            if (agents[i].on_failure === "halt_pipeline") {
+              const durationMs = Date.now() - startTime;
+              await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
+              await updateRunStatus(run_id, "failed", new Date().toISOString());
+              return;
+            }
+          }
         }
       }
     }
-  }
 
-  await updateRunStatus(run_id, "completed", new Date().toISOString());
+    const durationMs = Date.now() - startTime;
+    await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
+    await updateRunStatus(run_id, "completed", new Date().toISOString());
+  } finally {
+    // Always shut down MCP servers, even on failure
+    await mcpManager.shutdown();
+  }
 }

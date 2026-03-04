@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { runPipeline } from "@/lib/orchestrator";
-import { checkRateLimit, RUN_LIMIT } from "@/lib/rate-limiter";
+import { checkRateLimit, WEBHOOK_LIMIT } from "@/lib/rate-limiter";
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ pipeline_id: string }> }
+) {
   try {
-    const rl = checkRateLimit("runs", RUN_LIMIT);
+    const { pipeline_id } = await params;
+
+    const rl = checkRateLimit(`webhook:${pipeline_id}`, WEBHOOK_LIMIT);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: `Rate limit exceeded. Try again in ${rl.resetInSeconds}s.` },
@@ -19,19 +24,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { pipeline_id, input_data } = body;
-
-    if (!pipeline_id) {
-      return NextResponse.json(
-        { error: "pipeline_id is required." },
-        { status: 400 }
-      );
-    }
-
     const supabase = await createSupabaseServerClient();
 
-    // Fetch the pipeline spec
+    // Fetch the pipeline
     const { data: pipeline, error: pipelineError } = await supabase
       .from("pipelines")
       .select("*")
@@ -45,13 +40,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate that this pipeline accepts webhook triggers
+    const triggers: string[] = pipeline.spec?.triggers ?? [];
+    if (!triggers.includes("webhook")) {
+      return NextResponse.json(
+        {
+          error:
+            "This pipeline does not accept webhook triggers. Add 'webhook' to the pipeline's triggers array.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Parse input data from request body
+    let input_data: Record<string, unknown> = {};
+    try {
+      input_data = await request.json();
+    } catch {
+      // Empty body is acceptable — pipeline may not require inputs
+    }
+
     // Create the run record
     const { data: run, error: runError } = await supabase
       .from("pipeline_runs")
       .insert({
         pipeline_id,
         status: "pending",
-        input_data: input_data ?? {},
+        input_data,
         started_at: new Date().toISOString(),
       })
       .select()
@@ -64,11 +79,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Start the pipeline execution asynchronously (fire-and-forget)
-    // The orchestrator writes status updates to Supabase for Realtime
-    runPipeline(run.id, pipeline.spec, input_data ?? {}).catch((err) => {
-      console.error(`Pipeline run ${run.id} failed:`, err);
-      // Update run status to failed
+    // Start pipeline execution in background
+    runPipeline(run.id, pipeline.spec, input_data).catch((err) => {
+      console.error(`[Webhook] Pipeline run ${run.id} failed:`, err);
       createSupabaseServerClient().then((sb) =>
         sb
           .from("pipeline_runs")
@@ -80,32 +93,15 @@ export async function POST(request: NextRequest) {
       );
     });
 
-    return NextResponse.json({ run }, { status: 201 });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "An unexpected error occurred.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient();
-
-    const { data, error } = await supabase
-      .from("pipeline_runs")
-      .select("*, pipelines(name)")
-      .order("started_at", { ascending: false })
-      .limit(50);
-
-    if (error) {
-      return NextResponse.json(
-        { error: `Database error: ${error.message}` },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ runs: data }, { status: 200 });
+    return NextResponse.json(
+      {
+        received: true,
+        run_id: run.id,
+        pipeline_name: pipeline.name,
+        message: "Pipeline run started",
+      },
+      { status: 200 }
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "An unexpected error occurred.";

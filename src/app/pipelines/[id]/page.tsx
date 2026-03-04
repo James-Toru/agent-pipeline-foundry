@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ReactFlowProvider } from "@xyflow/react";
 import type { PipelineRecord, AgentSpec, PipelineSpec } from "@/types/pipeline";
@@ -19,12 +19,14 @@ function formatDate(dateStr: string) {
 
 export default function PipelineInspectorPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const pipelineId = params.id;
 
   const [pipeline, setPipeline] = useState<PipelineRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<AgentSpec | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -94,6 +96,24 @@ export default function PipelineInspectorPage() {
     }
   }
 
+  async function handleDuplicate() {
+    setIsDuplicating(true);
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to duplicate");
+      }
+      const data = await res.json();
+      router.push(`/pipelines/${data.pipeline.id}`);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Duplicate failed.");
+      setIsDuplicating(false);
+    }
+  }
+
   function handleDiscard() {
     setSelectedAgent(null);
     setHasUnsavedChanges(false);
@@ -140,12 +160,21 @@ export default function PipelineInspectorPage() {
             className="bg-transparent text-lg font-semibold text-white outline-none focus:border-b focus:border-zinc-600"
           />
         </div>
-        <Link
-          href={`/runs/new?pipeline=${pipelineId}`}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
-        >
-          Run Pipeline
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDuplicate}
+            disabled={isDuplicating}
+            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-40"
+          >
+            {isDuplicating ? "Duplicating..." : "Duplicate"}
+          </button>
+          <Link
+            href={`/runs/new?pipeline=${pipelineId}`}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+          >
+            Run Pipeline
+          </Link>
+        </div>
       </div>
 
       {/* Main content */}
@@ -190,6 +219,27 @@ export default function PipelineInspectorPage() {
             <span>Created {formatDate(pipeline.created_at)}</span>
             <span>Updated {formatDate(pipeline.updated_at)}</span>
           </div>
+          {pipeline.spec.triggers.includes("webhook") && (
+            <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Webhook URL
+              </span>
+              <code className="flex-1 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
+                {typeof window !== "undefined"
+                  ? `${window.location.origin}/api/webhooks/${pipelineId}`
+                  : `/api/webhooks/${pipelineId}`}
+              </code>
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/api/webhooks/${pipelineId}`;
+                  navigator.clipboard.writeText(url);
+                }}
+                className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              >
+                Copy
+              </button>
+            </div>
+          )}
           <MetaBlock meta={pipeline.spec.meta} />
         </div>
       </div>

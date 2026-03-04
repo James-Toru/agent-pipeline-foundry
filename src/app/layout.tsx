@@ -14,7 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agent Foundry",
+  title: {
+    default: "Agent Foundry",
+    template: "%s | Agent Foundry",
+  },
   description: "Transform workflow descriptions into multi-agent pipeline specifications",
 };
 
