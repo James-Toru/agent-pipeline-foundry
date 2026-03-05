@@ -21,7 +21,9 @@ import {
   Webhook,
   Loader2,
   Save,
+  Trash2,
 } from "lucide-react";
+import DeletePipelineDialog from "@/components/pipeline/DeletePipelineDialog";
 
 
 export default function PipelineInspectorPage() {
@@ -37,6 +39,9 @@ export default function PipelineInspectorPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -128,6 +133,28 @@ export default function PipelineInspectorPage() {
     fetchPipeline();
   }
 
+  async function handleDeleteConfirm() {
+    if (!pipeline) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/pipelines/${pipeline.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Failed to delete pipeline");
+      }
+      router.push("/pipelines");
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete pipeline"
+      );
+      setIsDeleting(false);
+      setShowDeleteDialog(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-950">
@@ -186,8 +213,33 @@ export default function PipelineInspectorPage() {
             <Play className="size-3.5" />
             Run Pipeline
           </Link>
+          <div className="ml-1 h-5 w-px bg-white/10" />
+          <button
+            onClick={() => setShowDeleteDialog(true)}
+            className="flex items-center gap-1.5 rounded-lg ring-1 ring-red-500/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10 hover:ring-red-500/50 transition-all duration-200"
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </button>
         </div>
       </div>
+
+      {/* Delete error banner */}
+      {deleteError && (
+        <div className="flex items-center justify-between border-b border-red-500/20 bg-red-500/8 px-6 py-2.5 text-sm text-red-400">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="size-4 shrink-0" />
+            Failed to delete: {deleteError}
+          </div>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="ml-4 shrink-0 text-red-400/60 hover:text-red-300 transition-colors"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
@@ -261,6 +313,14 @@ export default function PipelineInspectorPage() {
           <MetaBlock meta={pipeline.spec.meta} />
         </div>
       </div>
+
+      <DeletePipelineDialog
+        pipeline={pipeline}
+        isOpen={showDeleteDialog}
+        isDeleting={isDeleting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => { if (!isDeleting) setShowDeleteDialog(false); }}
+      />
 
       {/* Unsaved changes bar */}
       {hasUnsavedChanges && (

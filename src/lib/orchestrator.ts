@@ -426,31 +426,35 @@ async function executeAgent(
   agentSpec: AgentSpec,
   ctx: RunContext
 ): Promise<AgentResult> {
-  // Collect inputs from upstream agent outputs
-  const agentInput: Record<string, unknown> = {};
-  for (const key of Object.keys(agentSpec.inputs)) {
-    for (const [, outputs] of ctx.agent_outputs) {
-      if (key in outputs) {
-        agentInput[key] = outputs[key];
-      }
+  // Step 1: Start with the original pipeline input data
+  const resolvedInputData: Record<string, unknown> = {
+    ...ctx.input_data,
+  };
+
+  // Step 2: Merge ALL outputs from every completed upstream agent.
+  // This ensures every agent has access to all previous results
+  // regardless of how the agentSpec.inputs keys are named.
+  for (const [agentId, agentOutput] of ctx.agent_outputs) {
+    // Merge output fields directly so agents access them by name,
+    // e.g. email_body, subject_line, validation_status
+    if (agentOutput && typeof agentOutput === "object") {
+      Object.assign(resolvedInputData, agentOutput);
     }
-    if (key in ctx.input_data && !(key in agentInput)) {
-      agentInput[key] = ctx.input_data[key];
-    }
+    // Also keep namespaced copy for explicit access,
+    // e.g. contact_data_validator.validation_status
+    resolvedInputData[agentId] = agentOutput;
   }
 
   const messageId = await createAgentMessage(
     ctx.run_id,
     agentSpec.agent_id,
     "running",
-    agentInput
+    resolvedInputData
   );
 
   try {
     const client = createAnthropicClient();
     const tools = getToolsForAgent(agentSpec.tools);
-
-    const userMessage = `You are executing as part of an automated pipeline. Here is your input data:\n\n${JSON.stringify(agentInput, null, 2)}\n\nProcess this input according to your instructions and produce structured JSON output.`;
 
     const timeoutMs = agentSpec.guardrails.max_runtime_seconds * 1000;
 
@@ -459,7 +463,21 @@ async function executeAgent(
 
     const agentCall = async () => {
       const messages: MessageParam[] = [
-        { role: "user", content: userMessage },
+        {
+          role: "user",
+          content: JSON.stringify({
+            task:
+              "Execute your assigned role completely and return a valid JSON object containing all required output fields.",
+            pipeline_inputs: ctx.input_data,
+            upstream_outputs: Object.fromEntries(ctx.agent_outputs),
+            all_available_data: resolvedInputData,
+            required_output_fields: agentSpec.outputs,
+            critical_instruction:
+              "You MUST return ONLY a valid JSON object. No prose, no markdown, no explanation. " +
+              "Your entire response must be parseable by JSON.parse(). " +
+              "Include every field listed in required_output_fields.",
+          }),
+        },
       ];
 
       let iterations = 0;
@@ -519,19 +537,21 @@ async function executeAgent(
 
           let output: Record<string, unknown>;
           try {
-            let jsonStr = rawOutput.trim();
-            const fenceMatch = jsonStr.match(
-              /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/
-            );
-            if (fenceMatch) jsonStr = fenceMatch[1].trim();
-            if (!jsonStr.startsWith("{")) {
-              const s = jsonStr.indexOf("{");
-              const e = jsonStr.lastIndexOf("}");
-              if (s !== -1 && e > s) jsonStr = jsonStr.slice(s, e + 1);
-            }
-            output = JSON.parse(jsonStr);
+            const cleaned = rawOutput
+              .replace(/^```json\s*/i, "")
+              .replace(/^```\s*/i, "")
+              .replace(/```\s*$/i, "")
+              .trim();
+            output = JSON.parse(cleaned);
           } catch {
-            output = { raw_output: rawOutput };
+            console.warn(
+              `[Orchestrator] Agent ${agentSpec.agent_id} returned non-JSON. Wrapping in structured output.`
+            );
+            output = {};
+            for (const fieldName of Object.keys(agentSpec.outputs)) {
+              output[fieldName] = rawOutput;
+            }
+            output["_raw"] = rawOutput;
           }
 
           return output;

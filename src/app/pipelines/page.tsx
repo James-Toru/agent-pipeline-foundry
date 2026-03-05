@@ -18,19 +18,36 @@ import {
   AlertCircle,
   Plus,
 } from "lucide-react";
+import DeletePipelineDialog from "@/components/pipeline/DeletePipelineDialog";
 
 
 function PipelineCard({
   pipeline,
   onDuplicate,
+  onDelete,
 }: {
   pipeline: PipelineRecord;
   onDuplicate: (id: string) => void;
+  onDelete: (pipeline: PipelineRecord) => void;
 }) {
   return (
     <Card hover className="p-5 group">
       {/* Hover accent strip */}
       <div className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-linear-to-b from-blue-500/0 via-blue-500/50 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+      {/* Trash icon — top right, inside card bounds */}
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(pipeline); }}
+        className="absolute top-3 right-3 flex h-7 w-7 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-red-500/10 hover:text-red-400 opacity-0 group-hover:opacity-100"
+        aria-label="Delete pipeline"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="3,6 5,6 21,6" />
+          <path d="M19,6l-1,14H6L5,6" />
+          <path d="M10,11v6M14,11v6" />
+          <path d="M9,6V4h6v2" />
+        </svg>
+      </button>
 
       <Link href={`/pipelines/${pipeline.id}`}>
         <h3 className="text-base font-medium text-white group-hover:text-zinc-200">
@@ -78,6 +95,9 @@ export default function PipelinesPage() {
   const [pipelines, setPipelines] = useState<PipelineRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingPipeline, setDeletingPipeline] = useState<PipelineRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchPipelines() {
@@ -103,6 +123,29 @@ export default function PipelinesPage() {
       router.push(`/pipelines/${data.pipeline.id}`);
     } catch (err) {
       console.error("Duplicate failed:", err);
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deletingPipeline) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/pipelines/${deletingPipeline.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Failed to delete pipeline");
+      }
+      setPipelines((prev) => prev.filter((p) => p.id !== deletingPipeline.id));
+      setDeletingPipeline(null);
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete pipeline"
+      );
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -139,6 +182,22 @@ export default function PipelinesPage() {
           </div>
         )}
 
+        {deleteError && (
+          <div className="flex items-center justify-between rounded-xl ring-1 ring-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="size-4 shrink-0" />
+              Failed to delete pipeline: {deleteError}
+            </div>
+            <button
+              onClick={() => setDeleteError(null)}
+              className="ml-4 shrink-0 text-red-400/60 hover:text-red-300 transition-colors"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {!isLoading && !error && pipelines.length === 0 && (
           <EmptyState
             icon={<GitBranch className="size-6" />}
@@ -152,11 +211,24 @@ export default function PipelinesPage() {
         {!isLoading && pipelines.length > 0 && (
           <div className="grid gap-4 sm:grid-cols-2">
             {pipelines.map((p) => (
-              <PipelineCard key={p.id} pipeline={p} onDuplicate={handleDuplicate} />
+              <PipelineCard
+                key={p.id}
+                pipeline={p}
+                onDuplicate={handleDuplicate}
+                onDelete={setDeletingPipeline}
+              />
             ))}
           </div>
         )}
       </div>
+
+      <DeletePipelineDialog
+        pipeline={deletingPipeline}
+        isOpen={deletingPipeline !== null}
+        isDeleting={isDeleting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => { if (!isDeleting) setDeletingPipeline(null); }}
+      />
     </div>
   );
 }

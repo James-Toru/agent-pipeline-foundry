@@ -105,6 +105,80 @@ export async function PATCH(
 }
 
 /**
+ * DELETE /api/pipelines/[id] — Permanently delete a pipeline and all related records.
+ * Deletion order respects foreign key constraints.
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = await createSupabaseServerClient();
+
+    // Confirm the pipeline exists before touching anything
+    const { data: existing, error: fetchError } = await supabase
+      .from("pipelines")
+      .select("id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existing) {
+      return NextResponse.json(
+        { error: "Pipeline not found." },
+        { status: 404 }
+      );
+    }
+
+    // Step 1 — Collect run IDs for this pipeline
+    const { data: runs } = await supabase
+      .from("pipeline_runs")
+      .select("id")
+      .eq("pipeline_id", id);
+
+    const runIds = (runs ?? []).map((r: { id: string }) => r.id);
+
+    // Steps 2–4 — Delete child records scoped to those runs
+    if (runIds.length > 0) {
+      await supabase.from("token_usage").delete().in("run_id", runIds);
+      await supabase.from("approval_requests").delete().in("run_id", runIds);
+      await supabase.from("agent_messages").delete().in("run_id", runIds);
+    }
+
+    // Step 5 — Delete pipeline_runs
+    await supabase.from("pipeline_runs").delete().eq("pipeline_id", id);
+
+    // Step 6 — Delete scheduled triggers
+    await supabase
+      .from("pipeline_scheduled_triggers")
+      .delete()
+      .eq("pipeline_id", id);
+
+    // Step 7 — Delete the pipeline itself
+    const { error: deleteError } = await supabase
+      .from("pipelines")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      return NextResponse.json(
+        { error: `Database error: ${deleteError.message}` },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      { success: true, message: "Pipeline deleted successfully." },
+      { status: 200 }
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "An unexpected error occurred.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
  * POST /api/pipelines/[id] — Duplicate a pipeline.
  * Creates a copy with a new ID and "(Copy)" appended to the name.
  */

@@ -1,198 +1,254 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { getServerForTool, type MCPServerConfig } from "@/lib/mcp-config";
+import { isGoogleConfigured } from "@/lib/google-auth";
+import { gmailRead, gmailSend, gmailDraft } from "@/lib/integrations/gmail";
+import {
+  calendarRead,
+  calendarWrite,
+  calendarFindSlot,
+} from "@/lib/integrations/google-calendar";
+import {
+  braveWebSearch,
+  braveScrapePage,
+  braveWebResearch,
+} from "@/lib/integrations/brave-search";
 import type { ToolId } from "@/types/pipeline";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type ToolExecutionResult =
   | { success: true; result: string }
   | { success: false; error: string; fallback: string };
 
-// ── Tool Name Mapping ────────────────────────────────────────────────────────
-// Maps Agent Foundry tool IDs to actual MCP server tool names
-
-const TOOL_NAME_MAP: Record<ToolId, string> = {
-  gmail_read: "gmail_search_emails",
-  gmail_send: "gmail_send_email",
-  gmail_draft: "gmail_create_draft",
-  outlook_read: "outlook_read",
-  outlook_send: "outlook_send",
-  google_calendar_read: "google_calendar_list_events",
-  google_calendar_write: "google_calendar_create_event",
-  google_calendar_find_slot: "google_calendar_find_free_time",
-  web_search: "brave_web_search",
-  web_scrape: "brave_fetch_page",
-  web_research: "brave_web_search",
-  supabase_read: "supabase_read",
-  supabase_write: "supabase_write",
-  json_transform: "filesystem_write",
-  human_approval_request: "human_approval_request",
-  pipeline_notify: "pipeline_notify",
-  schedule_trigger: "schedule_trigger",
-};
-
-// ── Simulation Fallbacks ─────────────────────────────────────────────────────
+// ── Simulation Fallbacks ──────────────────────────────────────────────────────
 
 function getSimulationFallback(
   toolId: ToolId,
   _input: Record<string, unknown>
 ): string {
   return (
-    `ERROR: Tool "${toolId}" is unavailable. The required MCP server is not configured or failed to start. ` +
+    `ERROR: Tool "${toolId}" is unavailable. The required service is not configured. ` +
     `Do NOT retry this tool — it will fail again. ` +
     `Proceed with your task using the information you already have, ` +
     `or produce your best output based on your own knowledge.`
   );
 }
 
-// ── MCP Client Manager ──────────────────────────────────────────────────────
+// ── JSON Transform (local, no external dependency) ────────────────────────────
 
-export class MCPClientManager {
-  private clients: Map<string, Client> = new Map();
-  private transports: Map<string, StdioClientTransport> = new Map();
+async function handleJsonTransform(
+  input: Record<string, unknown>
+): Promise<string> {
+  const data = input.input ?? {};
+  const ops = Array.isArray(input.operations)
+    ? (input.operations as Array<{ type: string; config: Record<string, unknown> }>)
+    : [];
 
-  /**
-   * Start MCP servers needed for the given tool IDs.
-   * Only starts each server once, even if multiple tools need it.
-   */
-  async startServersForRun(toolIds: ToolId[]): Promise<void> {
-    // Identify unique servers needed
-    const neededServers = new Map<string, MCPServerConfig>();
-    for (const toolId of toolIds) {
-      // Skip internally handled tools
-      if (INTERNAL_TOOLS.has(toolId)) continue;
+  let result: unknown = data;
 
-      const config = getServerForTool(toolId);
-      if (config && !neededServers.has(config.name)) {
-        // Skip servers whose required env vars are empty
-        const missingEnv = Object.entries(config.env ?? {}).filter(
-          ([, v]) => !v
-        );
-        if (missingEnv.length > 0) {
-          const keys = missingEnv.map(([k]) => k).join(", ");
-          console.warn(
-            `[MCP] Skipping server "${config.name}" — missing env: ${keys}`
+  for (const op of ops) {
+    switch (op.type) {
+      case "pick": {
+        const keys = op.config.keys as string[];
+        if (typeof result === "object" && result !== null && !Array.isArray(result)) {
+          const r = result as Record<string, unknown>;
+          result = Object.fromEntries(
+            keys.filter((k) => k in r).map((k) => [k, r[k]])
           );
-          continue;
         }
-        neededServers.set(config.name, config);
+        break;
       }
+      case "filter": {
+        if (Array.isArray(result)) {
+          const key = op.config.key as string;
+          const value = op.config.value;
+          result = result.filter(
+            (item: unknown) =>
+              typeof item === "object" &&
+              item !== null &&
+              (item as Record<string, unknown>)[key] === value
+          );
+        }
+        break;
+      }
+      case "map": {
+        if (Array.isArray(result)) {
+          const field = op.config.field as string;
+          result = result.map(
+            (item: unknown) =>
+              typeof item === "object" && item !== null
+                ? (item as Record<string, unknown>)[field]
+                : item
+          );
+        }
+        break;
+      }
+      default:
+        break;
     }
-
-    // Start each server
-    for (const [name, config] of neededServers) {
-      if (this.clients.has(name)) {
-        console.log(`[MCP] Server "${name}" already running, skipping`);
-        continue;
-      }
-
-      try {
-        await this.startServer(name, config);
-        console.log(`[MCP] Server "${name}" started successfully`);
-      } catch (err) {
-        console.error(
-          `[MCP] Failed to start server "${name}":`,
-          err instanceof Error ? err.message : err
-        );
-        // Do not crash — fall back to simulation for tools on this server
-      }
-    }
-
-    console.log(
-      `[MCP] ${this.clients.size} server(s) active for this run`
-    );
   }
 
-  private async startServer(
-    name: string,
-    config: MCPServerConfig
-  ): Promise<void> {
-    if (config.transport !== "stdio" || !config.command) {
-      throw new Error(
-        `Server "${name}" has unsupported transport: ${config.transport}`
+  return JSON.stringify({ status: "success", result });
+}
+
+// ── Tool Client Manager ───────────────────────────────────────────────────────
+
+const GOOGLE_TOOL_IDS = new Set<ToolId>([
+  "gmail_read",
+  "gmail_send",
+  "gmail_draft",
+  "google_calendar_read",
+  "google_calendar_write",
+  "google_calendar_find_slot",
+]);
+
+export class MCPClientManager {
+  /**
+   * Validates that required credentials are available for the tool IDs used in
+   * this run. Logs warnings for missing credentials so the orchestrator can
+   * surface them early. Non-throwing — tools fall back gracefully at call time.
+   */
+  async startServersForRun(toolIds: ToolId[]): Promise<void> {
+    const needsGoogle = toolIds.some((id) => GOOGLE_TOOL_IDS.has(id));
+    if (needsGoogle && !isGoogleConfigured()) {
+      console.warn(
+        "[Tools] Google credentials not fully configured — Gmail/Calendar tools will return errors. " +
+          "Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in .env.local."
       );
     }
 
-    const transport = new StdioClientTransport({
-      command: config.command,
-      args: config.args,
-      env: {
-        ...process.env as Record<string, string>,
-        ...(config.env ?? {}),
-      },
-    });
-
-    const client = new Client(
-      { name: `agent-foundry-${name}`, version: "1.0.0" },
-      { capabilities: {} }
+    const needsBrave = toolIds.some((id) =>
+      (["web_search", "web_scrape", "web_research"] as ToolId[]).includes(id)
     );
+    if (needsBrave && !process.env.BRAVE_API_KEY) {
+      console.warn(
+        "[Tools] BRAVE_API_KEY not set — web search tools will return errors."
+      );
+    }
 
-    await client.connect(transport);
-    this.clients.set(name, client);
-    this.transports.set(name, transport);
+    console.log(
+      `[Tools] Direct API integrations ready for ${toolIds.length} tool(s)`
+    );
   }
 
   /**
-   * Execute a tool via MCP. Falls back to simulation if the server
-   * is not available or the call fails.
+   * Execute a tool via direct API integration. Returns a structured result
+   * that the orchestrator uses to build the tool_result message for the agent.
    */
   async executeTool(
     toolId: ToolId,
     input: Record<string, unknown>
   ): Promise<ToolExecutionResult> {
-    const config = getServerForTool(toolId);
-    if (!config) {
-      return {
-        success: false,
-        error: `No MCP server configured for tool "${toolId}"`,
-        fallback: getSimulationFallback(toolId, input),
-      };
-    }
-
-    const client = this.clients.get(config.name);
-    if (!client) {
-      console.warn(
-        `[MCP] No active client for server "${config.name}", using simulation for "${toolId}"`
-      );
-      return {
-        success: false,
-        error: `MCP server "${config.name}" not connected`,
-        fallback: getSimulationFallback(toolId, input),
-      };
-    }
-
     try {
-      const mcpToolName = TOOL_NAME_MAP[toolId] ?? toolId;
-      const result = await client.callTool({
-        name: mcpToolName,
-        arguments: input,
-      });
+      let result: string;
 
-      // Extract text content from MCP response
-      const textContent = (result.content as Array<{ type: string; text?: string }>)
-        .filter((c) => c.type === "text" && c.text)
-        .map((c) => c.text)
-        .join("\n");
+      switch (toolId) {
+        // ── Gmail ──────────────────────────────────────────────────────────
+        case "gmail_read":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await gmailRead(input);
+          break;
 
-      if (!textContent) {
-        return {
-          success: true,
-          result: JSON.stringify({
-            status: "success",
-            data: result.content,
-          }),
-        };
+        case "gmail_send":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await gmailSend(input);
+          break;
+
+        case "gmail_draft":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await gmailDraft(input);
+          break;
+
+        // ── Google Calendar ────────────────────────────────────────────────
+        case "google_calendar_read":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await calendarRead(input);
+          break;
+
+        case "google_calendar_write":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await calendarWrite(input);
+          break;
+
+        case "google_calendar_find_slot":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await calendarFindSlot(input);
+          break;
+
+        // ── Brave Search ───────────────────────────────────────────────────
+        case "web_search":
+          result = await braveWebSearch(input);
+          break;
+
+        case "web_scrape":
+          result = await braveScrapePage(input);
+          break;
+
+        case "web_research":
+          result = await braveWebResearch(input);
+          break;
+
+        // ── JSON Transform (local) ─────────────────────────────────────────
+        case "json_transform":
+          result = await handleJsonTransform(input);
+          break;
+
+        // ── Not implemented ────────────────────────────────────────────────
+        case "outlook_read":
+        case "outlook_send":
+          return {
+            success: false,
+            error: "Outlook integration is not implemented",
+            fallback: getSimulationFallback(toolId, input),
+          };
+
+        default:
+          return {
+            success: false,
+            error: `No handler registered for tool "${toolId}"`,
+            fallback: getSimulationFallback(toolId, input),
+          };
       }
 
-      return { success: true, result: textContent };
+      return { success: true, result };
     } catch (err) {
       const errorMsg =
-        err instanceof Error ? err.message : "Unknown MCP error";
-      console.error(
-        `[MCP] Tool "${toolId}" execution failed on server "${config.name}":`,
-        errorMsg
-      );
+        err instanceof Error ? err.message : "Tool execution failed";
+      console.error(`[Tools] Tool "${toolId}" failed:`, errorMsg);
       return {
         success: false,
         error: errorMsg,
@@ -202,27 +258,14 @@ export class MCPClientManager {
   }
 
   /**
-   * Gracefully close all active MCP connections.
+   * No-op: direct API integrations have no persistent connections to close.
    */
   async shutdown(): Promise<void> {
-    for (const [name, client] of this.clients) {
-      try {
-        await client.close();
-        console.log(`[MCP] Server "${name}" disconnected`);
-      } catch (err) {
-        console.error(
-          `[MCP] Error closing server "${name}":`,
-          err instanceof Error ? err.message : err
-        );
-      }
-    }
-    this.clients.clear();
-    this.transports.clear();
-    console.log("[MCP] All servers shut down");
+    console.log("[Tools] Direct API integrations — no shutdown needed");
   }
 }
 
-// ── Internal Tools (handled by orchestrator, not MCP) ────────────────────────
+// ── Internal Tools (handled by orchestrator, not this manager) ────────────────
 
 const INTERNAL_TOOLS = new Set<ToolId>([
   "human_approval_request",

@@ -17,6 +17,7 @@ import {
   Save,
   Loader2,
   AlertCircle,
+  Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -86,7 +87,9 @@ function IntegrationCard({
   const [isOpen, setIsOpen] = useState(false);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const Icon = config.icon;
 
@@ -98,14 +101,12 @@ function IntegrationCard({
   async function handleSave() {
     setIsSaving(true);
     setMessage(null);
+    setTestResult(null);
     try {
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          integration: config.id,
-          credentials,
-        }),
+        body: JSON.stringify({ integration: config.id, credentials }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -116,6 +117,28 @@ function IntegrationCard({
       );
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleTest() {
+    setIsTesting(true);
+    setTestResult(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ integration: config.id }),
+      });
+      const data = await res.json();
+      setTestResult({ success: data.success, message: data.message ?? data.error });
+    } catch (err) {
+      setTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Test failed",
+      });
+    } finally {
+      setIsTesting(false);
     }
   }
 
@@ -195,10 +218,25 @@ function IntegrationCard({
             </div>
           )}
 
+          {testResult && (
+            <div className={`flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
+              testResult.success
+                ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : "ring-red-500/20 bg-red-500/10 text-red-400"
+            }`}>
+              {testResult.success ? (
+                <CheckCircle2 className="size-3 mt-0.5 shrink-0" />
+              ) : (
+                <AlertCircle className="size-3 mt-0.5 shrink-0" />
+              )}
+              {testResult.message}
+            </div>
+          )}
+
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || isTesting}
               className="flex items-center gap-1.5 rounded-xl bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-40"
             >
               {isSaving ? (
@@ -210,6 +248,23 @@ function IntegrationCard({
                 <>
                   <Save className="size-3.5" />
                   Save
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleTest}
+              disabled={isTesting || isSaving}
+              className="flex items-center gap-1.5 rounded-xl ring-1 ring-white/10 hover:ring-white/20 bg-zinc-800/80 hover:bg-zinc-700/80 px-4 py-2 text-sm font-medium text-zinc-300 transition-all duration-200 disabled:opacity-40"
+            >
+              {isTesting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <Zap className="size-3.5" />
+                  Test Connection
                 </>
               )}
             </button>
