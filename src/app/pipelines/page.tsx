@@ -2,16 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatDate } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import type { PipelineRecord } from "@/types/pipeline";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonCard } from "@/components/ui/skeleton-card";
+import {
+  GitBranch,
+  Bot,
+  Copy,
+  ArrowRight,
+  AlertCircle,
+  Plus,
+} from "lucide-react";
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function PipelineCard({
   pipeline,
@@ -21,7 +28,10 @@ function PipelineCard({
   onDuplicate: (id: string) => void;
 }) {
   return (
-    <div className="group rounded-lg border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-600">
+    <Card hover className="p-5 group">
+      {/* Hover accent strip */}
+      <div className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-linear-to-b from-blue-500/0 via-blue-500/50 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
+
       <Link href={`/pipelines/${pipeline.id}`}>
         <h3 className="text-base font-medium text-white group-hover:text-zinc-200">
           {pipeline.name}
@@ -32,15 +42,13 @@ function PipelineCard({
           </p>
         )}
         <div className="mt-4 flex items-center gap-3 text-xs text-zinc-500">
-          <span>{pipeline.spec.agents.length} agents</span>
+          <span className="flex items-center gap-1">
+            <Bot className="size-3" />
+            {pipeline.spec.agents.length} agents
+          </span>
           <span className="text-zinc-700">|</span>
           {pipeline.spec.triggers.map((t) => (
-            <span
-              key={t}
-              className="rounded-full bg-zinc-800 px-2 py-0.5 text-zinc-400"
-            >
-              {t}
-            </span>
+            <Badge key={t} variant="default">{t}</Badge>
           ))}
           <span className="ml-auto">{formatDate(pipeline.created_at)}</span>
         </div>
@@ -48,18 +56,20 @@ function PipelineCard({
       <div className="mt-3 flex items-center justify-between">
         <Link
           href={`/pipelines/${pipeline.id}`}
-          className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
+          className="flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
         >
-          Inspect &rarr;
+          Inspect
+          <ArrowRight className="size-3" />
         </Link>
         <button
           onClick={() => onDuplicate(pipeline.id)}
-          className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+          className="flex items-center gap-1.5 rounded-lg ring-1 ring-white/8 px-2.5 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
         >
+          <Copy className="size-3" />
           Duplicate
         </button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -98,46 +108,45 @@ export default function PipelinesPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-5xl px-6 py-12">
-        <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Your Pipelines
-          </h1>
-          <Link
-            href="/"
-            className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200"
-          >
-            New Pipeline
-          </Link>
-        </div>
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <PageHeader
+          icon={<GitBranch className="size-4" />}
+          title="Your Pipelines"
+          description="Manage and inspect your generated agent pipelines."
+          actions={
+            <Link
+              href="/"
+              className="flex items-center gap-1.5 rounded-xl bg-linear-to-b from-blue-500 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all duration-200 hover:from-blue-400 hover:to-blue-500"
+            >
+              <Plus className="size-3.5" />
+              New Pipeline
+            </Link>
+          }
+        />
 
         {isLoading && (
           <div className="grid gap-4 sm:grid-cols-2">
             {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="h-36 animate-pulse rounded-lg border border-zinc-800 bg-zinc-900"
-              />
+              <SkeletonCard key={i} className="h-36" />
             ))}
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div className="flex items-start gap-3 rounded-xl ring-1 ring-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <AlertCircle className="size-4 mt-0.5 shrink-0" />
             {error}
           </div>
         )}
 
         {!isLoading && !error && pipelines.length === 0 && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-6 py-12 text-center">
-            <p className="text-sm text-zinc-500">No pipelines yet.</p>
-            <Link
-              href="/"
-              className="mt-3 inline-block text-sm font-medium text-white hover:text-zinc-300"
-            >
-              Generate your first pipeline &rarr;
-            </Link>
-          </div>
+          <EmptyState
+            icon={<GitBranch className="size-6" />}
+            title="No pipelines yet"
+            description="Generate your first AI agent pipeline from a natural language description."
+            actionLabel="Generate your first pipeline"
+            actionHref="/"
+          />
         )}
 
         {!isLoading && pipelines.length > 0 && (

@@ -1,6 +1,7 @@
 "use client";
 
 import type { PipelineMeta } from "@/types/pipeline";
+import { Plus, Lightbulb, ArrowRight } from "lucide-react";
 
 interface MetaBlockProps {
   meta: PipelineMeta;
@@ -26,9 +27,9 @@ export default function MetaBlock({ meta }: MetaBlockProps) {
             {meta.gaps_filled.map((gap, i) => (
               <li
                 key={i}
-                className="flex items-start gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-zinc-300"
+                className="flex items-start gap-3 rounded-xl ring-1 ring-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-zinc-300"
               >
-                <span className="mt-0.5 text-emerald-400">+</span>
+                <Plus className="size-3.5 text-emerald-400 mt-0.5 shrink-0" />
                 <span>{gap}</span>
               </li>
             ))}
@@ -45,9 +46,9 @@ export default function MetaBlock({ meta }: MetaBlockProps) {
             {meta.assumptions.map((assumption, i) => (
               <li
                 key={i}
-                className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-zinc-300"
+                className="flex items-start gap-3 rounded-xl ring-1 ring-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-zinc-300"
               >
-                <span className="mt-0.5 text-amber-400">&bull;</span>
+                <Lightbulb className="size-3.5 text-amber-400 mt-0.5 shrink-0" />
                 <span>{assumption}</span>
               </li>
             ))}
@@ -64,9 +65,9 @@ export default function MetaBlock({ meta }: MetaBlockProps) {
             {meta.recommended_enhancements.map((enhancement, i) => (
               <li
                 key={i}
-                className="flex items-start gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 px-4 py-3 text-sm text-zinc-300"
+                className="flex items-start gap-3 rounded-xl ring-1 ring-sky-500/20 bg-sky-500/5 px-4 py-3 text-sm text-zinc-300"
               >
-                <span className="mt-0.5 text-sky-400">&rarr;</span>
+                <ArrowRight className="size-3.5 text-sky-400 mt-0.5 shrink-0" />
                 <span>{enhancement}</span>
               </li>
             ))}

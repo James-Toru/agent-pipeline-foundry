@@ -2,20 +2,27 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import { ReactFlowProvider } from "@xyflow/react";
 import type { PipelineRecord, AgentSpec, PipelineSpec } from "@/types/pipeline";
 import PipelineGraph from "@/components/pipeline/PipelineGraph";
 import AgentCard from "@/components/pipeline/AgentCard";
 import MetaBlock from "@/components/generate/MetaBlock";
+import { Badge } from "@/components/ui/badge";
+import {
+  ChevronLeft,
+  Copy,
+  Play,
+  AlertCircle,
+  Zap,
+  Bot,
+  Calendar,
+  Webhook,
+  Loader2,
+  Save,
+} from "lucide-react";
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export default function PipelineInspectorPage() {
   const params = useParams<{ id: string }>();
@@ -124,7 +131,7 @@ export default function PipelineInspectorPage() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
+        <Loader2 className="size-6 text-zinc-500 animate-spin" />
       </div>
     );
   }
@@ -133,8 +140,9 @@ export default function PipelineInspectorPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-100">
         <p className="text-lg">Pipeline not found.</p>
-        <Link href="/pipelines" className="mt-3 text-sm text-zinc-400 hover:text-white">
-          Back to pipelines &rarr;
+        <Link href="/pipelines" className="mt-3 flex items-center gap-1 text-sm text-zinc-400 hover:text-white transition-colors">
+          <ChevronLeft className="size-4" />
+          Back to pipelines
         </Link>
       </div>
     );
@@ -145,33 +153,37 @@ export default function PipelineInspectorPage() {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-3">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between border-b border-white/6 bg-zinc-950/80 backdrop-blur-sm px-6 py-3">
+        <div className="flex items-center gap-3">
           <Link
             href="/pipelines"
-            className="text-sm text-zinc-500 hover:text-white"
+            className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
           >
-            &larr; Pipelines
+            <ChevronLeft className="size-4" />
+            Pipelines
           </Link>
+          <span className="text-zinc-800">/</span>
           <input
             type="text"
             value={pipeline.spec.name}
             onChange={(e) => handleNameChange(e.target.value)}
-            className="bg-transparent text-lg font-semibold text-white outline-none focus:border-b focus:border-zinc-600"
+            className="bg-transparent text-base font-semibold text-white outline-none border-b border-transparent focus:border-zinc-600 transition-colors"
           />
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleDuplicate}
             disabled={isDuplicating}
-            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 ring-1 ring-white/8 px-3 py-1.5 text-sm text-zinc-300 transition-all duration-200 disabled:opacity-40"
           >
+            <Copy className="size-3.5" />
             {isDuplicating ? "Duplicating..." : "Duplicate"}
           </button>
           <Link
             href={`/runs/new?pipeline=${pipelineId}`}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+            className="flex items-center gap-1.5 rounded-lg bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-emerald-500/20 transition-all duration-200"
           >
+            <Play className="size-3.5" />
             Run Pipeline
           </Link>
         </div>
@@ -180,7 +192,7 @@ export default function PipelineInspectorPage() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Graph */}
-        <div className={`flex-1 p-4 ${selectedAgent ? "" : ""}`}>
+        <div className="flex-1 p-4">
           <ReactFlowProvider>
             <PipelineGraph
               spec={pipeline.spec}
@@ -201,30 +213,35 @@ export default function PipelineInspectorPage() {
       </div>
 
       {/* Pipeline info + MetaBlock */}
-      <div className="border-t border-zinc-800 px-6 py-6">
+      <div className="border-t border-white/6 px-6 py-6 bg-zinc-950/50">
         <div className="mx-auto max-w-5xl space-y-6">
-          <div className="flex gap-6 text-xs text-zinc-500">
-            <span>
-              Trigger:{" "}
+          <div className="flex flex-wrap gap-4 text-xs text-zinc-500">
+            <span className="flex items-center gap-1.5">
+              <Zap className="size-3" />
               {pipeline.spec.triggers.map((t) => (
-                <span
-                  key={t}
-                  className="ml-1 rounded-full bg-zinc-800 px-2 py-0.5 text-zinc-400"
-                >
-                  {t}
-                </span>
+                <Badge key={t} variant="default">{t}</Badge>
               ))}
             </span>
-            <span>{pipeline.spec.agents.length} agents</span>
-            <span>Created {formatDate(pipeline.created_at)}</span>
-            <span>Updated {formatDate(pipeline.updated_at)}</span>
+            <span className="flex items-center gap-1.5">
+              <Bot className="size-3" />
+              {pipeline.spec.agents.length} agents
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Calendar className="size-3" />
+              Created {formatDate(pipeline.created_at)}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Calendar className="size-3" />
+              Updated {formatDate(pipeline.updated_at)}
+            </span>
           </div>
           {pipeline.spec.triggers.includes("webhook") && (
-            <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+            <div className="flex items-center gap-3 rounded-xl ring-1 ring-white/6 bg-zinc-900/60 px-4 py-3">
+              <Webhook className="size-4 text-zinc-500 shrink-0" />
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 Webhook URL
               </span>
-              <code className="flex-1 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
+              <code className="flex-1 rounded-lg bg-zinc-800/60 px-2 py-1 text-xs text-zinc-300 font-mono">
                 {typeof window !== "undefined"
                   ? `${window.location.origin}/api/webhooks/${pipelineId}`
                   : `/api/webhooks/${pipelineId}`}
@@ -234,8 +251,9 @@ export default function PipelineInspectorPage() {
                   const url = `${window.location.origin}/api/webhooks/${pipelineId}`;
                   navigator.clipboard.writeText(url);
                 }}
-                className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+                className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-xs text-zinc-400 transition-colors"
               >
+                <Copy className="size-3" />
                 Copy
               </button>
             </div>
@@ -246,26 +264,37 @@ export default function PipelineInspectorPage() {
 
       {/* Unsaved changes bar */}
       {hasUnsavedChanges && (
-        <div className="sticky bottom-0 flex items-center justify-between border-t border-amber-500/30 bg-amber-500/10 px-6 py-3">
-          <span className="text-sm text-amber-400">
-            You have unsaved changes
-          </span>
-          <div className="flex gap-3">
+        <div className="sticky bottom-0 flex items-center justify-between border-t border-amber-500/20 bg-amber-500/5 backdrop-blur-xl px-6 py-3">
+          <div className="flex items-center gap-2 text-sm text-amber-400">
+            <AlertCircle className="size-4" />
+            Unsaved changes
+          </div>
+          <div className="flex items-center gap-3">
             {saveError && (
               <span className="text-sm text-red-400">{saveError}</span>
             )}
             <button
               onClick={handleDiscard}
-              className="rounded-lg border border-zinc-600 px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
+              className="rounded-lg ring-1 ring-white/8 px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
             >
               Discard
             </button>
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="rounded-lg bg-white px-4 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg bg-linear-to-b from-blue-500 to-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all duration-200 disabled:opacity-40"
             >
-              {isSaving ? "Saving..." : "Save Pipeline"}
+              {isSaving ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="size-3.5" />
+                  Save Pipeline
+                </>
+              )}
             </button>
           </div>
         </div>

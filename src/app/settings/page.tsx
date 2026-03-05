@@ -1,6 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
+import { SkeletonCard } from "@/components/ui/skeleton-card";
+import {
+  Settings2,
+  Mail,
+  Calendar,
+  Search,
+  CheckCircle2,
+  Circle,
+  ChevronUp,
+  ChevronDown,
+  Lock,
+  Save,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 interface IntegrationStatus {
   gmail: { configured: boolean };
@@ -11,7 +29,9 @@ interface IntegrationStatus {
 interface IntegrationConfig {
   id: string;
   name: string;
-  icon: string;
+  icon: LucideIcon;
+  tint: string;
+  iconColor: string;
   description: string;
   fields: { key: string; label: string; type: "text" | "password" }[];
 }
@@ -20,7 +40,9 @@ const INTEGRATIONS: IntegrationConfig[] = [
   {
     id: "gmail",
     name: "Gmail",
-    icon: "M",
+    icon: Mail,
+    tint: "bg-red-500/10 ring-red-500/20",
+    iconColor: "text-red-400",
     description: "Read, send, and draft emails via Gmail.",
     fields: [
       { key: "GMAIL_CLIENT_ID", label: "Client ID", type: "text" },
@@ -31,26 +53,22 @@ const INTEGRATIONS: IntegrationConfig[] = [
   {
     id: "google_calendar",
     name: "Google Calendar",
-    icon: "C",
+    icon: Calendar,
+    tint: "bg-blue-500/10 ring-blue-500/20",
+    iconColor: "text-blue-400",
     description: "Read, create, and find available slots on Google Calendar.",
     fields: [
       { key: "GOOGLE_CLIENT_ID", label: "Client ID", type: "text" },
-      {
-        key: "GOOGLE_CLIENT_SECRET",
-        label: "Client Secret",
-        type: "password",
-      },
-      {
-        key: "GOOGLE_REFRESH_TOKEN",
-        label: "Refresh Token",
-        type: "password",
-      },
+      { key: "GOOGLE_CLIENT_SECRET", label: "Client Secret", type: "password" },
+      { key: "GOOGLE_REFRESH_TOKEN", label: "Refresh Token", type: "password" },
     ],
   },
   {
     id: "brave_search",
     name: "Brave Search",
-    icon: "S",
+    icon: Search,
+    tint: "bg-orange-500/10 ring-orange-500/20",
+    iconColor: "text-orange-400",
     description: "Web search, scraping, and multi-step research.",
     fields: [
       { key: "BRAVE_API_KEY", label: "API Key", type: "password" },
@@ -69,6 +87,8 @@ function IntegrationCard({
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const Icon = config.icon;
 
   function handleFieldChange(key: string, value: string) {
     setCredentials((prev) => ({ ...prev, [key]: value }));
@@ -99,16 +119,18 @@ function IntegrationCard({
     }
   }
 
+  const isSuccess = message?.toLowerCase().includes("saved");
+
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900">
+    <Card>
       {/* Header */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex w-full items-center justify-between px-5 py-4 text-left"
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-zinc-300">
-            {config.icon}
+          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${config.tint}`}>
+            <Icon className={`size-4 ${config.iconColor}`} />
           </div>
           <div>
             <span className="text-sm font-medium text-white">
@@ -118,28 +140,34 @@ function IntegrationCard({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span
-            className={`flex items-center gap-1.5 text-xs ${
-              configured ? "text-emerald-400" : "text-zinc-500"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                configured ? "bg-emerald-400" : "bg-zinc-600"
-              }`}
-            />
-            {configured ? "Connected" : "Not configured"}
+          <span className="flex items-center gap-1.5 text-xs">
+            {configured ? (
+              <>
+                <CheckCircle2 className="size-3.5 text-emerald-400" />
+                <span className="text-emerald-400">Connected</span>
+              </>
+            ) : (
+              <>
+                <Circle className="size-3.5 text-zinc-600" />
+                <span className="text-zinc-500">Not configured</span>
+              </>
+            )}
           </span>
-          <span className="text-zinc-600">{isOpen ? "\u25B2" : "\u25BC"}</span>
+          {isOpen ? (
+            <ChevronUp className="size-4 text-zinc-600" />
+          ) : (
+            <ChevronDown className="size-4 text-zinc-600" />
+          )}
         </div>
       </button>
 
       {/* Expandable credentials form */}
       {isOpen && (
-        <div className="border-t border-zinc-800 px-5 py-4 space-y-3">
+        <div className="border-t border-white/6 px-5 py-4 space-y-3">
           {config.fields.map((field) => (
             <div key={field.key}>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-400">
+                {field.type === "password" && <Lock className="size-3" />}
                 {field.label}
               </label>
               <input
@@ -147,27 +175,48 @@ function IntegrationCard({
                 value={credentials[field.key] ?? ""}
                 onChange={(e) => handleFieldChange(field.key, e.target.value)}
                 placeholder={`Enter ${field.label.toLowerCase()}...`}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500"
+                className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 border-0"
               />
             </div>
           ))}
 
           {message && (
-            <p className="text-xs text-zinc-400">{message}</p>
+            <div className={`flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
+              isSuccess
+                ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : "ring-red-500/20 bg-red-500/10 text-red-400"
+            }`}>
+              {isSuccess ? (
+                <CheckCircle2 className="size-3 mt-0.5 shrink-0" />
+              ) : (
+                <AlertCircle className="size-3 mt-0.5 shrink-0" />
+              )}
+              {message}
+            </div>
           )}
 
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-xl bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-40"
             >
-              {isSaving ? "Saving..." : "Save"}
+              {isSaving ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="size-3.5" />
+                  Save
+                </>
+              )}
             </button>
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -194,21 +243,27 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
+      <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+        <div className="mx-auto max-w-2xl">
+          <div className="h-8 w-48 rounded-lg skeleton-shimmer mb-8" />
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => <SkeletonCard key={i} className="h-20" />)}
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
+    <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-xl font-semibold text-white">Integrations</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Connect external tools to enable real agent actions.
-        </p>
+        <PageHeader
+          icon={<Settings2 className="size-4" />}
+          title="Integrations"
+          description="Connect external tools to enable real agent actions."
+        />
 
-        <div className="mt-8 space-y-3">
+        <div className="space-y-3">
           {INTEGRATIONS.map((config) => (
             <IntegrationCard
               key={config.id}

@@ -2,6 +2,15 @@
 
 import { useState } from "react";
 import type { ApprovalRequest } from "@/types/pipeline";
+import {
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
+  Check,
+  X,
+  ChevronDown,
+  Loader2,
+} from "lucide-react";
 
 interface ApprovalGateProps {
   approval: ApprovalRequest;
@@ -44,23 +53,23 @@ export default function ApprovalGate({
     const isApproved = approval.status === "approved";
     return (
       <div
-        className={`rounded-lg border p-4 ${
+        className={`rounded-xl ring-1 p-4 ${
           isApproved
-            ? "border-emerald-500/30 bg-emerald-500/5"
-            : "border-red-500/30 bg-red-500/5"
+            ? "ring-emerald-500/20 bg-emerald-500/5"
+            : "ring-red-500/20 bg-red-500/5"
         }`}
       >
-        <div className="flex items-center gap-2">
-          <span
-            className={`h-2 w-2 rounded-full ${
-              isApproved ? "bg-emerald-400" : "bg-red-400"
-            }`}
-          />
+        <div className="flex items-center gap-2.5">
+          {isApproved ? (
+            <ShieldCheck className="size-4 text-emerald-400" />
+          ) : (
+            <ShieldX className="size-4 text-red-400" />
+          )}
           <span className="text-sm font-medium text-white">
             Approval: {approval.agent_id}
           </span>
           <span
-            className={`ml-auto text-xs ${
+            className={`ml-auto text-xs font-medium ${
               isApproved ? "text-emerald-400" : "text-red-400"
             }`}
           >
@@ -68,15 +77,20 @@ export default function ApprovalGate({
           </span>
         </div>
         <p className="mt-2 text-xs text-zinc-400">{approval.message}</p>
+        {approval.decided_at && (
+          <p className="mt-1 text-xs text-zinc-600">
+            {new Date(approval.decided_at).toLocaleString()}
+          </p>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+    <div className="rounded-xl ring-1 ring-amber-500/20 bg-amber-500/5 p-4">
       {/* Header */}
-      <div className="flex items-center gap-2">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+      <div className="flex items-center gap-2.5">
+        <ShieldAlert className="size-5 text-amber-400 animate-pulse" />
         <span className="text-sm font-medium text-white">
           Approval Required: {approval.agent_id}
         </span>
@@ -88,10 +102,11 @@ export default function ApprovalGate({
       {/* Context */}
       {approval.context && Object.keys(approval.context).length > 0 && (
         <details className="mt-3">
-          <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
+          <summary className="flex items-center gap-1.5 cursor-pointer text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+            <ChevronDown className="size-3 chevron-icon" />
             Review context data
           </summary>
-          <pre className="mt-2 max-h-60 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+          <pre className="mt-2 max-h-60 overflow-auto rounded-lg ring-1 ring-white/6 bg-zinc-950 p-3 text-xs text-zinc-400">
             {JSON.stringify(approval.context, null, 2)}
           </pre>
         </details>
@@ -102,16 +117,18 @@ export default function ApprovalGate({
         <button
           onClick={() => handleDecision("approved")}
           disabled={isSubmitting}
-          className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+          className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-40"
         >
-          {isSubmitting ? "..." : "Approve"}
+          {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+          Approve
         </button>
         <button
           onClick={() => handleDecision("rejected")}
           disabled={isSubmitting}
-          className="flex-1 rounded-lg border border-red-500/50 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
+          className="flex-1 flex items-center justify-center gap-1.5 rounded-xl ring-1 ring-red-500/30 px-4 py-2 text-sm font-medium text-red-400 transition-all duration-200 hover:bg-red-500/10 disabled:opacity-40"
         >
-          {isSubmitting ? "..." : "Reject"}
+          {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+          Reject
         </button>
       </div>
     </div>

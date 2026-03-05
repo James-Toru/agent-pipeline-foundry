@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentSpec,
   ToolId,
   OnFailurePolicy,
 } from "@/types/pipeline";
+import { Badge } from "@/components/ui/badge";
+import {
+  X,
+  FileText,
+  Wrench,
+  ShieldCheck,
+  AlertTriangle,
+  Sliders,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Save,
+  Check,
+} from "lucide-react";
 
 const ALL_TOOLS: ToolId[] = [
   "gmail_read", "gmail_send", "gmail_draft",
@@ -32,6 +45,13 @@ interface AgentCardProps {
 export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) {
   const [draft, setDraft] = useState<AgentSpec>({ ...agent, tools: [...agent.tools], guardrails: { ...agent.guardrails } });
   const [saved, setSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
+  }, []);
 
   function updateField<K extends keyof AgentSpec>(key: K, value: AgentSpec[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -41,45 +61,48 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
   function handleSave() {
     onUpdate(draft);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
   }
 
-  const availableTools = ALL_TOOLS.filter((t) => !draft.tools.includes(t));
+  const availableTools = useMemo(
+    () => ALL_TOOLS.filter((t) => !draft.tools.includes(t)),
+    [draft.tools]
+  );
 
   return (
-    <div className="flex h-full w-[420px] flex-col border-l border-zinc-800 bg-zinc-900 overflow-y-auto">
+    <div className="flex h-full w-105 flex-col border-l border-white/6 bg-zinc-900/95 backdrop-blur-sm overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+      <div className="flex items-center justify-between border-b border-white/6 px-5 py-4">
         <div className="flex-1 mr-3">
           <input
             type="text"
             value={draft.role}
             onChange={(e) => updateField("role", e.target.value)}
-            className="w-full bg-transparent text-base font-medium text-white outline-none focus:border-b focus:border-zinc-600"
+            className="w-full bg-transparent text-base font-medium text-white outline-none border-b border-transparent focus:border-zinc-600 transition-colors"
           />
-          <span className="mt-1 inline-block rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-400">
-            {draft.archetype}
-          </span>
+          <Badge variant="info" className="mt-1.5">{draft.archetype}</Badge>
         </div>
         <button
           onClick={onClose}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white transition-colors"
         >
-          &times;
+          <X className="size-4" />
         </button>
       </div>
 
       <div className="flex-1 space-y-6 px-5 py-5">
         {/* System Prompt */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <FileText className="size-3" />
             Agent Instructions
           </label>
           <textarea
             value={draft.system_prompt}
             onChange={(e) => updateField("system_prompt", e.target.value)}
             rows={6}
-            className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500"
+            className="w-full resize-y rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200"
           />
           <span className="mt-1 block text-xs text-zinc-600">
             {draft.system_prompt.length} characters
@@ -88,14 +111,15 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
 
         {/* Tools */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <Wrench className="size-3" />
             Assigned Tools
           </label>
           <div className="flex flex-wrap gap-1.5">
             {draft.tools.map((tool) => (
               <span
                 key={tool}
-                className="inline-flex items-center gap-1 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300"
+                className="inline-flex items-center gap-1 rounded-lg ring-1 ring-white/8 bg-zinc-800 px-2 py-1 text-xs text-zinc-300"
               >
                 {tool}
                 <button
@@ -105,9 +129,9 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
                       draft.tools.filter((t) => t !== tool)
                     )
                   }
-                  className="ml-0.5 text-zinc-600 hover:text-red-400"
+                  className="ml-0.5 text-zinc-600 hover:text-red-400 transition-colors"
                 >
-                  &times;
+                  <X className="size-2.5" />
                 </button>
               </span>
             ))}
@@ -120,7 +144,7 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
                   updateField("tools", [...draft.tools, e.target.value as ToolId]);
                 }
               }}
-              className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 outline-none"
+              className="mt-2 w-full rounded-xl ring-1 ring-white/8 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 outline-none border-0"
             >
               <option value="">Add tool...</option>
               {availableTools.map((t) => (
@@ -134,7 +158,8 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
 
         {/* Approval Gate */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <ShieldCheck className="size-3" />
             Requires Human Approval
           </label>
           <button
@@ -162,14 +187,15 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
                 updateField("approval_message", e.target.value || null)
               }
               placeholder="Approval message..."
-              className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none focus:border-zinc-500"
+              className="mt-2 w-full rounded-xl ring-1 ring-white/8 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 border-0"
             />
           )}
         </div>
 
         {/* Failure Policy */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <AlertTriangle className="size-3" />
             On Failure
           </label>
           <select
@@ -177,7 +203,7 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
             onChange={(e) =>
               updateField("on_failure", e.target.value as OnFailurePolicy)
             }
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none"
+            className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none border-0"
           >
             {FAILURE_POLICIES.map((p) => (
               <option key={p.value} value={p.value}>
@@ -189,7 +215,8 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
 
         {/* Guardrails */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <Sliders className="size-3" />
             Guardrails
           </label>
           <div className="grid grid-cols-3 gap-3">
@@ -204,7 +231,7 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
                     max_tokens: parseInt(e.target.value) || 0,
                   })
                 }
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none"
+                className="w-full rounded-lg ring-1 ring-white/8 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none border-0"
               />
             </div>
             <div>
@@ -218,7 +245,7 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
                     max_runtime_seconds: parseInt(e.target.value) || 0,
                   })
                 }
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none"
+                className="w-full rounded-lg ring-1 ring-white/8 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none border-0"
               />
             </div>
             <div>
@@ -235,7 +262,7 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
                     temperature: parseFloat(e.target.value) || 0,
                   })
                 }
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none"
+                className="w-full rounded-lg ring-1 ring-white/8 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none border-0"
               />
             </div>
           </div>
@@ -243,7 +270,8 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
 
         {/* Inputs */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <ArrowDownToLine className="size-3" />
             Inputs
           </label>
           <div className="space-y-1">
@@ -262,7 +290,8 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
 
         {/* Outputs */}
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <ArrowUpFromLine className="size-3" />
             Outputs
           </label>
           <div className="space-y-1">
@@ -281,12 +310,22 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
       </div>
 
       {/* Save Button */}
-      <div className="border-t border-zinc-800 px-5 py-4">
+      <div className="border-t border-white/6 px-5 py-4">
         <button
           onClick={handleSave}
-          className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200"
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-emerald-500/20 transition-all duration-200"
         >
-          {saved ? "Saved" : "Save Changes"}
+          {saved ? (
+            <>
+              <Check className="size-4" />
+              Saved
+            </>
+          ) : (
+            <>
+              <Save className="size-4" />
+              Save Changes
+            </>
+          )}
         </button>
       </div>
     </div>

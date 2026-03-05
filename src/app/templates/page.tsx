@@ -2,6 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonCard } from "@/components/ui/skeleton-card";
+import {
+  LayoutTemplate,
+  TrendingUp,
+  Search,
+  Zap,
+  Megaphone,
+  Bot,
+  Plus,
+  Loader2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 interface TemplateSummary {
   id: string;
@@ -13,18 +29,27 @@ interface TemplateSummary {
   triggers: string[];
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
-  Sales: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  Research: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  Productivity: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  Marketing: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  Sales: TrendingUp,
+  Research: Search,
+  Productivity: Zap,
+  Marketing: Megaphone,
+};
+
+type BadgeVariant = "info" | "success" | "warning" | "default";
+
+const CATEGORY_BADGE: Record<string, BadgeVariant> = {
+  Sales: "info",
+  Research: "default",
+  Productivity: "success",
+  Marketing: "warning",
 };
 
 export default function TemplatesPage() {
   const router = useRouter();
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [cloningIndex, setCloningIndex] = useState<number | null>(null);
+  const [cloningId, setCloningId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchTemplates() {
@@ -42,8 +67,10 @@ export default function TemplatesPage() {
     fetchTemplates();
   }, []);
 
-  async function handleClone(index: number) {
-    setCloningIndex(index);
+  async function handleClone(templateId: string) {
+    const index = templates.findIndex((t) => t.id === templateId);
+    if (index === -1) return;
+    setCloningId(templateId);
     try {
       const res = await fetch("/api/templates", {
         method: "POST",
@@ -58,101 +85,115 @@ export default function TemplatesPage() {
       router.push(`/pipelines/${data.pipeline.id}`);
     } catch (err) {
       console.error("Clone failed:", err);
-      setCloningIndex(null);
+      setCloningId(null);
     }
   }
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
+      <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+        <div className="mx-auto max-w-4xl">
+          <div className="h-8 w-48 rounded-lg skeleton-shimmer mb-8" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => (
+              <SkeletonCard key={i} className="h-48" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
 
-  // Group templates by category
   const categories = [...new Set(templates.map((t) => t.category))];
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
+    <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-xl font-semibold text-white">Pipeline Templates</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Pre-built pipeline blueprints. Clone one to get started instantly.
-        </p>
+        <PageHeader
+          icon={<LayoutTemplate className="size-4" />}
+          title="Pipeline Templates"
+          description="Pre-built blueprints. Clone one to get started instantly."
+        />
 
-        {categories.map((category) => (
-          <div key={category} className="mt-8">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-              {category}
-            </h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {templates
-                .filter((t) => t.category === category)
-                .map((template) => {
-                  const templateIndex = templates.indexOf(template);
-                  const catStyle =
-                    CATEGORY_COLORS[category] ??
-                    "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+        {categories.map((category) => {
+          const CategoryIcon = CATEGORY_ICONS[category];
+          return (
+            <div key={category} className="mt-8">
+              <div className="flex items-center gap-2 mb-3">
+                {CategoryIcon && <CategoryIcon className="size-4 text-zinc-500" />}
+                <h2 className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                  {category}
+                </h2>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {templates
+                  .filter((t) => t.category === category)
+                  .map((template) => {
+                    const badgeVariant = CATEGORY_BADGE[category] ?? "default";
+                    const IconComponent = CATEGORY_ICONS[category];
 
-                  return (
-                    <div
-                      key={template.id}
-                      className="flex flex-col rounded-lg border border-zinc-800 bg-zinc-900 p-5"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-zinc-300">
-                          {template.icon}
+                    return (
+                      <Card key={template.id} hover className="flex flex-col p-5">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-800 ring-1 ring-white/6 text-zinc-400">
+                            {IconComponent ? (
+                              <IconComponent className="size-5" />
+                            ) : (
+                              <span className="text-sm font-bold">{template.icon}</span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-medium text-white">
+                              {template.name}
+                            </h3>
+                            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                              {template.description}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-medium text-white">
-                            {template.name}
-                          </h3>
-                          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-                            {template.description}
-                          </p>
-                        </div>
-                      </div>
 
-                      <div className="mt-4 flex items-center gap-2">
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${catStyle}`}
-                        >
-                          {category}
-                        </span>
-                        <span className="text-[10px] text-zinc-600">
-                          {template.agent_count} agents
-                        </span>
-                        {template.triggers.map((t) => (
-                          <span
-                            key={t}
-                            className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500"
-                          >
-                            {t}
+                        <div className="mt-4 flex items-center gap-2">
+                          <Badge variant={badgeVariant}>{category}</Badge>
+                          <span className="flex items-center gap-1 text-[10px] text-zinc-600">
+                            <Bot className="size-3" />
+                            {template.agent_count} agents
                           </span>
-                        ))}
-                      </div>
+                          {template.triggers.map((t) => (
+                            <Badge key={t} variant="default">{t}</Badge>
+                          ))}
+                        </div>
 
-                      <button
-                        onClick={() => handleClone(templateIndex)}
-                        disabled={cloningIndex !== null}
-                        className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-40"
-                      >
-                        {cloningIndex === templateIndex
-                          ? "Cloning..."
-                          : "Use Template"}
-                      </button>
-                    </div>
-                  );
-                })}
+                        <button
+                          onClick={() => handleClone(template.id)}
+                          disabled={cloningId !== null}
+                          className="mt-4 flex items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {cloningId === template.id ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" />
+                              Cloning...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="size-3.5" />
+                              Use Template
+                            </>
+                          )}
+                        </button>
+                      </Card>
+                    );
+                  })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {templates.length === 0 && (
-          <p className="mt-12 text-center text-zinc-600">
-            No templates available.
-          </p>
+          <EmptyState
+            icon={<LayoutTemplate className="size-6" />}
+            title="No templates"
+            description="Templates are not available right now."
+          />
         )}
       </div>
     </div>

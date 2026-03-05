@@ -464,18 +464,43 @@ async function executeAgent(
 
       let iterations = 0;
       const maxIterations = 10;
+      let rateLimitRetries = 0;
+      const maxRateLimitRetries = 3;
 
       while (iterations < maxIterations) {
         iterations++;
 
-        const response = await client.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: agentSpec.guardrails.max_tokens,
-          temperature: agentSpec.guardrails.temperature,
-          system: agentSpec.system_prompt,
-          messages,
-          ...(tools.length > 0 ? { tools } : {}),
-        });
+        // Throttle API calls to avoid Anthropic rate limits
+        if (iterations > 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+
+        let response: Anthropic.Message;
+        try {
+          response = await client.messages.create({
+            model: ANTHROPIC_MODEL,
+            max_tokens: agentSpec.guardrails.max_tokens,
+            temperature: agentSpec.guardrails.temperature,
+            system: agentSpec.system_prompt,
+            messages,
+            ...(tools.length > 0 ? { tools } : {}),
+          });
+          rateLimitRetries = 0; // Reset on success
+        } catch (apiErr: unknown) {
+          // Handle Anthropic rate limit (429) with backoff
+          const status = (apiErr as { status?: number }).status;
+          if (status === 429 && rateLimitRetries < maxRateLimitRetries) {
+            rateLimitRetries++;
+            const retryAfter = Math.min(15000 * rateLimitRetries, 60000);
+            console.warn(
+              `[Orchestrator] Anthropic rate limited (attempt ${rateLimitRetries}/${maxRateLimitRetries}) — waiting ${retryAfter / 1000}s`
+            );
+            await new Promise((resolve) => setTimeout(resolve, retryAfter));
+            iterations--; // Retry this iteration
+            continue;
+          }
+          throw apiErr;
+        }
 
         // Accumulate token usage from this API call
         if (response.usage) {
@@ -701,7 +726,11 @@ async function executeAgentWithRetry(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (attempt > 0) {
-      const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+      // Wait longer between retries to respect API rate limits
+      const delay = Math.min(10000 * Math.pow(2, attempt), 60000);
+      console.log(
+        `[Orchestrator] Retry ${attempt}/${maxRetries} for "${agentSpec.agent_id}" — waiting ${delay / 1000}s`
+      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 

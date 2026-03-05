@@ -13,6 +13,22 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { SkeletonCard } from "@/components/ui/skeleton-card";
+import { cn } from "@/lib/utils";
+import {
+  BarChart2,
+  Activity,
+  CheckCircle2,
+  Cpu,
+  Timer,
+  TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +71,8 @@ interface Pagination {
 
 type Period = "7d" | "30d" | "90d" | "all";
 
+type BadgeVariant = "default" | "success" | "error" | "info" | "warning";
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTokens(n: number): string {
@@ -73,35 +91,13 @@ function formatDuration(ms: number): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
-const STATUS_STYLES: Record<string, { dot: string; text: string }> = {
-  completed: { dot: "bg-emerald-400", text: "text-emerald-400" },
-  failed: { dot: "bg-red-400", text: "text-red-400" },
-  running: { dot: "bg-blue-400", text: "text-blue-400" },
-  paused: { dot: "bg-amber-400", text: "text-amber-400" },
-  pending: { dot: "bg-zinc-500", text: "text-zinc-400" },
+const STATUS_BADGE: Record<string, BadgeVariant> = {
+  completed: "success",
+  failed: "error",
+  running: "info",
+  paused: "warning",
+  pending: "default",
 };
-
-// ── Stat Card ────────────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-        {label}
-      </p>
-      <p className="mt-1 text-2xl font-semibold text-white">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-zinc-500">{sub}</p>}
-    </div>
-  );
-}
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
@@ -152,66 +148,78 @@ export default function AnalyticsPage() {
     Promise.all([fetchStats(), fetchRuns()]).finally(() => setIsLoading(false));
   }, [fetchStats, fetchRuns]);
 
-  // Reset page when filter changes
   useEffect(() => {
     setPage(1);
   }, [statusFilter]);
 
   if (isLoading && !stats) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
+      <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+        <div className="mx-auto max-w-6xl">
+          <div className="h-8 w-48 rounded-lg skeleton-shimmer mb-8" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} className="h-28" />)}
+          </div>
+          <div className="mt-8 grid gap-6 lg:grid-cols-2">
+            <SkeletonCard className="h-72" />
+            <SkeletonCard className="h-72" />
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
+    <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
       <div className="mx-auto max-w-6xl">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-white">Analytics</h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              Pipeline execution metrics and token usage.
-            </p>
-          </div>
-          <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900 p-1">
-            {(["7d", "30d", "90d", "all"] as Period[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  period === p
-                    ? "bg-zinc-700 text-white"
-                    : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {p === "all" ? "All Time" : p.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
+        <PageHeader
+          icon={<BarChart2 className="size-4" />}
+          title="Analytics"
+          description="Pipeline execution metrics and token usage."
+          actions={
+            <div className="flex gap-1 rounded-xl ring-1 ring-white/6 bg-zinc-900 p-1">
+              {(["7d", "30d", "90d", "all"] as Period[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150",
+                    period === p
+                      ? "bg-zinc-700 text-white shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                >
+                  {p === "all" ? "All Time" : p.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          }
+        />
 
         {/* Stat Cards */}
         {stats && (
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard
+              icon={<Activity className="size-4" />}
               label="Total Runs"
               value={stats.total_runs.toString()}
-              sub={`${stats.completed_runs} completed, ${stats.failed_runs} failed`}
+              subtext={`${stats.completed_runs} completed, ${stats.failed_runs} failed`}
             />
             <StatCard
+              icon={<CheckCircle2 className="size-4" />}
               label="Success Rate"
               value={`${stats.success_rate}%`}
-              sub={`${stats.total_pipelines} pipelines`}
+              subtext={`${stats.total_pipelines} pipelines`}
             />
             <StatCard
+              icon={<Cpu className="size-4" />}
               label="Tokens Used"
               value={formatTokens(stats.total_tokens)}
-              sub={formatCost(stats.total_cost_usd)}
+              subtext={formatCost(stats.total_cost_usd)}
             />
             <StatCard
+              icon={<Timer className="size-4" />}
               label="Avg Duration"
               value={formatDuration(stats.avg_duration_ms)}
             />
@@ -221,9 +229,9 @@ export default function AnalyticsPage() {
         {/* Charts */}
         {chartData.length > 0 && (
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
-            {/* Token usage chart */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-              <h2 className="mb-4 text-sm font-medium text-zinc-400">
+            <Card className="p-5">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-400">
+                <TrendingUp className="size-3.5" />
                 Daily Token Usage
               </h2>
               <ResponsiveContainer width="100%" height={220}>
@@ -242,7 +250,7 @@ export default function AnalyticsPage() {
                     contentStyle={{
                       backgroundColor: "#18181b",
                       border: "1px solid #27272a",
-                      borderRadius: 8,
+                      borderRadius: 12,
                       fontSize: 12,
                     }}
                     labelStyle={{ color: "#a1a1aa" }}
@@ -260,11 +268,11 @@ export default function AnalyticsPage() {
                   />
                 </LineChart>
               </ResponsiveContainer>
-            </div>
+            </Card>
 
-            {/* Runs per day chart */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-              <h2 className="mb-4 text-sm font-medium text-zinc-400">
+            <Card className="p-5">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-400">
+                <BarChart2 className="size-3.5" />
                 Runs per Day
               </h2>
               <ResponsiveContainer width="100%" height={220}>
@@ -280,7 +288,7 @@ export default function AnalyticsPage() {
                     contentStyle={{
                       backgroundColor: "#18181b",
                       border: "1px solid #27272a",
-                      borderRadius: 8,
+                      borderRadius: 12,
                       fontSize: 12,
                     }}
                     labelStyle={{ color: "#a1a1aa" }}
@@ -288,20 +296,20 @@ export default function AnalyticsPage() {
                   <Bar dataKey="runs" fill="#60a5fa" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
+            </Card>
           </div>
         )}
 
         {/* Run History Table */}
         <div className="mt-8">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
               Run History
             </h2>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 outline-none focus:border-zinc-500"
+              className="rounded-xl ring-1 ring-white/6 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 outline-none border-0"
             >
               <option value="">All Statuses</option>
               <option value="completed">Completed</option>
@@ -312,66 +320,39 @@ export default function AnalyticsPage() {
             </select>
           </div>
 
-          <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
+          <div className="overflow-hidden rounded-xl ring-1 ring-white/6">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-zinc-800 bg-zinc-900">
+              <thead className="border-b border-white/6 bg-zinc-900/60 backdrop-blur-sm">
                 <tr>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Pipeline
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Tokens
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Cost
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Duration
-                  </th>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Started
-                  </th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Pipeline</th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Status</th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Tokens</th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Cost</th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Duration</th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Started</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800 bg-zinc-950">
+              <tbody className="divide-y divide-white/6 bg-zinc-950">
                 {runs.map((run) => {
-                  const style = STATUS_STYLES[run.status] ?? STATUS_STYLES.pending;
+                  const badgeVariant = STATUS_BADGE[run.status] ?? "default";
                   return (
-                    <tr
-                      key={run.id}
-                      className="transition-colors hover:bg-zinc-900"
-                    >
+                    <tr key={run.id} className="transition-colors hover:bg-zinc-900/60">
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/runs/${run.id}`}
-                          className="text-zinc-200 hover:text-white"
-                        >
+                        <Link href={`/runs/${run.id}`} className="text-zinc-200 hover:text-white transition-colors">
                           {run.pipelines?.name ?? run.pipeline_id.slice(0, 8)}
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`flex items-center gap-1.5 ${style.text}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-                          {run.status}
-                        </span>
+                        <Badge variant={badgeVariant} dot>{run.status}</Badge>
                       </td>
                       <td className="px-4 py-3 text-zinc-400">
-                        {run.total_tokens != null
-                          ? formatTokens(run.total_tokens)
-                          : "-"}
+                        {run.total_tokens != null ? formatTokens(run.total_tokens) : "-"}
                       </td>
                       <td className="px-4 py-3 text-zinc-400">
-                        {run.total_cost_usd != null
-                          ? formatCost(parseFloat(run.total_cost_usd))
-                          : "-"}
+                        {run.total_cost_usd != null ? formatCost(parseFloat(run.total_cost_usd)) : "-"}
                       </td>
                       <td className="px-4 py-3 text-zinc-400">
-                        {run.duration_ms != null
-                          ? formatDuration(run.duration_ms)
-                          : "-"}
+                        {run.duration_ms != null ? formatDuration(run.duration_ms) : "-"}
                       </td>
                       <td className="px-4 py-3 text-zinc-500">
                         {new Date(run.started_at).toLocaleString("en-US", {
@@ -386,10 +367,7 @@ export default function AnalyticsPage() {
                 })}
                 {runs.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={6}
-                      className="px-4 py-8 text-center text-zinc-600"
-                    >
+                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-600">
                       No runs found.
                     </td>
                   </tr>
@@ -410,18 +388,18 @@ export default function AnalyticsPage() {
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="rounded border border-zinc-700 px-3 py-1 transition-colors hover:bg-zinc-800 disabled:opacity-30"
+                  className="flex items-center gap-1 rounded-lg ring-1 ring-white/6 px-3 py-1 transition-colors hover:bg-zinc-800 disabled:opacity-30"
                 >
+                  <ChevronLeft className="size-3" />
                   Previous
                 </button>
                 <button
-                  onClick={() =>
-                    setPage((p) => Math.min(pagination.total_pages, p + 1))
-                  }
+                  onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))}
                   disabled={page === pagination.total_pages}
-                  className="rounded border border-zinc-700 px-3 py-1 transition-colors hover:bg-zinc-800 disabled:opacity-30"
+                  className="flex items-center gap-1 rounded-lg ring-1 ring-white/6 px-3 py-1 transition-colors hover:bg-zinc-800 disabled:opacity-30"
                 >
                   Next
+                  <ChevronRight className="size-3" />
                 </button>
               </div>
             </div>

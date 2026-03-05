@@ -1,11 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { SkeletonCard } from "@/components/ui/skeleton-card";
+import {
+  ChevronLeft,
+  Play,
+  Loader2,
+  AlertCircle,
+  Bot,
+  Zap,
+  Lock,
+} from "lucide-react";
 import type { PipelineRecord, DataField } from "@/types/pipeline";
 
-export default function NewRunPage() {
+function NewRunForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pipelineId = searchParams.get("pipeline");
@@ -30,7 +43,6 @@ export default function NewRunPage() {
         const data = await res.json();
         setPipeline(data.pipeline);
 
-        // Initialize form with empty values for each input field
         const initial: Record<string, string> = {};
         for (const key of Object.keys(data.pipeline.spec.input_schema)) {
           initial[key] = "";
@@ -67,7 +79,6 @@ export default function NewRunPage() {
   async function handleStart() {
     if (!pipeline || !pipelineId) return;
 
-    // Validate required fields
     const schema = pipeline.spec.input_schema;
     for (const [key, field] of Object.entries(schema)) {
       if (field.required && !formData[key]?.trim()) {
@@ -80,7 +91,6 @@ export default function NewRunPage() {
     setError(null);
 
     try {
-      // Coerce form data to proper types
       const input_data: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(formData)) {
         if (schema[key]) {
@@ -109,8 +119,11 @@ export default function NewRunPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
+      <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+        <div className="mx-auto max-w-2xl">
+          <div className="h-8 w-48 rounded-lg skeleton-shimmer mb-8" />
+          <SkeletonCard className="h-64" />
+        </div>
       </div>
     );
   }
@@ -118,12 +131,16 @@ export default function NewRunPage() {
   if (!pipeline) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-100">
-        <p className="text-lg">{error || "Pipeline not found."}</p>
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 ring-1 ring-white/6 mb-4">
+          <AlertCircle className="size-6 text-zinc-500" />
+        </div>
+        <p className="text-lg font-medium text-white">{error || "Pipeline not found."}</p>
         <Link
           href="/pipelines"
-          className="mt-3 text-sm text-zinc-400 hover:text-white"
+          className="mt-3 flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
         >
-          Back to pipelines &rarr;
+          <ChevronLeft className="size-3" />
+          Back to pipelines
         </Link>
       </div>
     );
@@ -132,135 +149,161 @@ export default function NewRunPage() {
   const inputFields = Object.entries(pipeline.spec.input_schema);
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <div className="border-b border-zinc-800 px-6 py-4">
-        <div className="mx-auto max-w-2xl">
-          <Link
-            href={`/pipelines/${pipelineId}`}
-            className="text-sm text-zinc-500 hover:text-white"
-          >
-            &larr; Back to pipeline
-          </Link>
-          <h1 className="mt-2 text-xl font-semibold text-white">
-            Run: {pipeline.spec.name}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {pipeline.spec.description}
-          </p>
-        </div>
-      </div>
+    <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+      <div className="mx-auto max-w-2xl">
+        {/* Back link */}
+        <Link
+          href={`/pipelines/${pipelineId}`}
+          className="mb-6 inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
+        >
+          <ChevronLeft className="size-3.5" />
+          Back to pipeline
+        </Link>
 
-      {/* Form */}
-      <div className="flex-1 px-6 py-8">
-        <div className="mx-auto max-w-2xl space-y-6">
-          {inputFields.length === 0 ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-5 py-6 text-center">
-              <p className="text-sm text-zinc-400">
-                This pipeline has no input fields. Click below to start the run.
-              </p>
-            </div>
-          ) : (
-            <>
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-                Pipeline Inputs
-              </h2>
-              {inputFields.map(([key, field]) => (
-                <div key={key}>
-                  <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-zinc-300">
-                    {key}
-                    {field.required && (
-                      <span className="text-xs text-red-400">*</span>
+        <PageHeader
+          icon={<Play className="size-4" />}
+          title={`Run: ${pipeline.spec.name}`}
+          description={pipeline.spec.description}
+        />
+
+        <Card className="p-6">
+          <div className="space-y-5">
+            {inputFields.length === 0 ? (
+              <div className="rounded-xl ring-1 ring-white/6 bg-zinc-800/50 px-5 py-6 text-center">
+                <p className="text-sm text-zinc-400">
+                  This pipeline has no input fields. Click below to start the run.
+                </p>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                  Pipeline Inputs
+                </h2>
+                {inputFields.map(([key, field]) => (
+                  <div key={key}>
+                    <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-zinc-400">
+                      {field.type === "object" || field.type === "array" ? (
+                        <Lock className="size-3" />
+                      ) : null}
+                      {key}
+                      {field.required && (
+                        <span className="text-red-400">*</span>
+                      )}
+                      <Badge variant="default" className="ml-auto">{field.type}</Badge>
+                    </label>
+                    <p className="mb-2 text-xs text-zinc-500">
+                      {field.description}
+                    </p>
+                    {field.type === "object" || field.type === "array" ? (
+                      <textarea
+                        value={formData[key] ?? ""}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            [key]: e.target.value,
+                          }))
+                        }
+                        rows={4}
+                        placeholder={
+                          field.type === "array" ? '["item1", "item2"]' : '{"key": "value"}'
+                        }
+                        className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 border-0 resize-none"
+                      />
+                    ) : field.type === "boolean" ? (
+                      <select
+                        value={formData[key] ?? ""}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            [key]: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 border-0"
+                      >
+                        <option value="">Select...</option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type === "number" ? "number" : "text"}
+                        value={formData[key] ?? ""}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            [key]: e.target.value,
+                          }))
+                        }
+                        placeholder={`Enter ${key}...`}
+                        className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 border-0"
+                      />
                     )}
-                    <span className="ml-auto rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-500">
-                      {field.type}
-                    </span>
-                  </label>
-                  <p className="mb-2 text-xs text-zinc-500">
-                    {field.description}
-                  </p>
-                  {field.type === "object" || field.type === "array" ? (
-                    <textarea
-                      value={formData[key] ?? ""}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          [key]: e.target.value,
-                        }))
-                      }
-                      rows={4}
-                      placeholder={
-                        field.type === "array" ? '["item1", "item2"]' : '{"key": "value"}'
-                      }
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500"
-                    />
-                  ) : field.type === "boolean" ? (
-                    <select
-                      value={formData[key] ?? ""}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          [key]: e.target.value,
-                        }))
-                      }
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none"
-                    >
-                      <option value="">Select...</option>
-                      <option value="true">True</option>
-                      <option value="false">False</option>
-                    </select>
-                  ) : (
-                    <input
-                      type={field.type === "number" ? "number" : "text"}
-                      value={formData[key] ?? ""}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          [key]: e.target.value,
-                        }))
-                      }
-                      placeholder={`Enter ${key}...`}
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500"
-                    />
-                  )}
-                </div>
-              ))}
-            </>
-          )}
+                  </div>
+                ))}
+              </>
+            )}
 
-          {/* Pipeline info */}
-          <div className="flex flex-wrap gap-4 text-xs text-zinc-500">
-            <span>{pipeline.spec.agents.length} agents</span>
-            <span>
-              Triggers:{" "}
+            {/* Pipeline info */}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+              <span className="flex items-center gap-1">
+                <Bot className="size-3" />
+                {pipeline.spec.agents.length} agents
+              </span>
+              <span className="flex items-center gap-1">
+                <Zap className="size-3" />
+                Triggers:
+              </span>
               {pipeline.spec.triggers.map((t) => (
-                <span
-                  key={t}
-                  className="ml-1 rounded-full bg-zinc-800 px-2 py-0.5 text-zinc-400"
-                >
-                  {t}
-                </span>
+                <Badge key={t} variant="default">{t}</Badge>
               ))}
-            </span>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {error}
             </div>
-          )}
 
-          {/* Start button */}
-          <button
-            onClick={handleStart}
-            disabled={isStarting}
-            className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
-          >
-            {isStarting ? "Starting Run..." : "Start Pipeline Run"}
-          </button>
-        </div>
+            {/* Error */}
+            {error && (
+              <div className="flex items-start gap-2 rounded-xl ring-1 ring-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                <AlertCircle className="size-4 mt-0.5 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            {/* Start button */}
+            <button
+              onClick={handleStart}
+              disabled={isStarting}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isStarting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Starting Run...
+                </>
+              ) : (
+                <>
+                  <Play className="size-4" />
+                  Start Pipeline Run
+                </>
+              )}
+            </button>
+          </div>
+        </Card>
       </div>
     </div>
+  );
+}
+
+export default function NewRunPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+          <div className="mx-auto max-w-2xl">
+            <div className="h-8 w-48 rounded-lg skeleton-shimmer mb-8" />
+            <SkeletonCard className="h-64" />
+          </div>
+        </div>
+      }
+    >
+      <NewRunForm />
+    </Suspense>
   );
 }

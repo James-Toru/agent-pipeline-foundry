@@ -247,7 +247,7 @@ export const PIPELINE_TEMPLATES: PipelineTemplate[] = [
           on_failure: "retry_3x_then_notify",
           guardrails: {
             max_tokens: 4000,
-            max_runtime_seconds: 120,
+            max_runtime_seconds: 300,
             temperature: 0.3,
           },
         },

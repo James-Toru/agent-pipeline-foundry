@@ -16,6 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import type { PipelineSpec, AgentSpec, AgentArchetype } from "@/types/pipeline";
+import { Lock } from "lucide-react";
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ interface PipelineGraphProps {
   selectedAgentId: string | null;
 }
 
-// ── Archetype → colour mapping ───────────────────────────────────────────────
+// ── Archetype colour mapping ─────────────────────────────────────────────
 
 const DATA_ARCHETYPES = new Set(["Ingestion", "Enrichment", "Validation", "Transformation"]);
 const INTEL_ARCHETYPES = new Set(["Research", "Analysis", "Scoring", "Classification"]);
@@ -69,22 +70,20 @@ function AgentNode({ data }: NodeProps<Node<AgentNodeData>>) {
 
   return (
     <div
-      className={`rounded-lg border-2 px-4 py-3 min-w-[180px] ${colors.bg} ${
-        data.isSelected ? "border-white" : colors.border
-      }`}
+      className={`rounded-xl border-2 px-4 py-3 min-w-45 backdrop-blur-sm ${colors.bg} ${
+        data.isSelected ? "border-white shadow-lg shadow-white/5" : colors.border
+      } transition-all duration-150`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-zinc-500 !w-2 !h-2" />
+      <Handle type="target" position={Position.Top} className="bg-zinc-500! w-2! h-2!" />
       <div className="text-sm font-medium text-white">{data.role}</div>
       <div className={`text-xs mt-0.5 ${colors.text}`}>{data.archetype}</div>
       <div className="flex items-center gap-2 mt-2 text-xs text-zinc-500">
         <span>{data.toolCount} tools</span>
         {data.requiresApproval && (
-          <span className="text-amber-400" title="Requires approval">
-            &#x1f512;
-          </span>
+          <span title="Requires approval"><Lock className="size-3 text-amber-400" /></span>
         )}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-zinc-500 !w-2 !h-2" />
+      <Handle type="source" position={Position.Bottom} className="bg-zinc-500! w-2! h-2!" />
     </div>
   );
 }
@@ -109,7 +108,6 @@ function layoutGraph(
     g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   }
 
-  // Use ALL flow edges (including START/END) for layout
   for (const fe of flowEdges) {
     const from = fe.from === "START" ? null : fe.from;
     const to = fe.to === "END" ? null : fe.to;
@@ -209,7 +207,7 @@ export default function PipelineGraph({
   );
 
   return (
-    <div className="h-full w-full min-h-[500px] rounded-lg border border-zinc-800 bg-zinc-950">
+    <div className="h-full w-full min-h-125 rounded-xl ring-1 ring-white/6 bg-zinc-950">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -223,7 +221,7 @@ export default function PipelineGraph({
       >
         <Background color="#27272a" gap={20} />
         <Controls
-          className="!bg-zinc-900 !border-zinc-700 !rounded-lg [&>button]:!bg-zinc-800 [&>button]:!border-zinc-700 [&>button]:!text-zinc-400 [&>button:hover]:!bg-zinc-700"
+          className="bg-zinc-900! border-zinc-700! rounded-lg! [&>button]:bg-zinc-800! [&>button]:border-zinc-700! [&>button]:text-zinc-400! [&>button:hover]:bg-zinc-700!"
         />
       </ReactFlow>
     </div>

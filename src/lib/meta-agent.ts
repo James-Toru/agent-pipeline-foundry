@@ -433,17 +433,86 @@ Router → Copywriter → QA → Outreach → Report
 8 agents from a 3-step request. This is correct behaviour.
 `.trim();
 
-// ── Part B — Meta-Agent Function ─────────────────────────────────────────────
+// ── Part B — Shared Types and Helpers ────────────────────────────────────────
 
 export type MetaAgentResult =
   | { success: true; spec: PipelineSpec }
   | { success: false; error: string; raw: string };
 
+/** Callback type for streaming progress updates. */
+export type ProgressCallback = (step: string, percent: number) => void;
+
+const ON_FAILURE_VALUES = new Set([
+  "retry_3x_then_notify",
+  "skip_and_continue",
+  "halt_pipeline",
+  "escalate_to_human",
+]);
+
+function normalizeOnFailure(value: string): string {
+  if (ON_FAILURE_VALUES.has(value)) return value;
+  const v = value.toLowerCase();
+  if (v.includes("halt")) return "halt_pipeline";
+  if (v.includes("skip")) return "skip_and_continue";
+  if (v.includes("escalate") || v.includes("human")) return "escalate_to_human";
+  return "retry_3x_then_notify";
+}
+
+/** Parse, normalize, and validate raw LLM text into a PipelineSpec. */
+function parsePipelineResponse(rawText: string): MetaAgentResult {
+  let jsonText = rawText;
+  const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) {
+    jsonText = fenceMatch[1].trim();
+  }
+  if (!jsonText.startsWith("{")) {
+    const start = jsonText.indexOf("{");
+    const end = jsonText.lastIndexOf("}");
+    if (start !== -1 && end !== -1 && end > start) {
+      jsonText = jsonText.slice(start, end + 1);
+    }
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return { success: false, error: "Invalid JSON returned by Meta-Agent", raw: rawText };
+  }
+
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    Array.isArray((parsed as Record<string, unknown>).agents)
+  ) {
+    for (const agent of (parsed as Record<string, unknown[]>).agents) {
+      if (agent && typeof agent === "object") {
+        const a = agent as Record<string, unknown>;
+        if (typeof a.on_failure === "string") {
+          a.on_failure = normalizeOnFailure(a.on_failure);
+        }
+      }
+    }
+  }
+
+  const validation = validatePipelineSpec(parsed);
+  if (validation.valid) {
+    return { success: true, spec: validation.spec };
+  }
+  return {
+    success: false,
+    error: `Pipeline spec validation failed:\n${validation.errors.join("\n")}`,
+    raw: rawText,
+  };
+}
+
+// ── Part C — Meta-Agent Functions ─────────────────────────────────────────────
+
+/** Non-streaming generation — single API call, returns complete result. */
 export async function generatePipeline(
   userInput: string
 ): Promise<MetaAgentResult> {
   const client = createAnthropicClient();
-
   const response = await client.messages.create({
     model: ANTHROPIC_MODEL,
     max_tokens: 8000,
@@ -459,69 +528,65 @@ export async function generatePipeline(
       raw: JSON.stringify(response.content),
     };
   }
+  return parsePipelineResponse(textBlock.text.trim());
+}
 
-  const rawText = textBlock.text.trim();
+/**
+ * Streaming generation — streams tokens via the Anthropic SDK, calling
+ * onProgress(step, percent) as the pipeline spec is generated.
+ */
+export async function generatePipelineStream(
+  userInput: string,
+  onProgress: ProgressCallback
+): Promise<MetaAgentResult> {
+  const client = createAnthropicClient();
+  onProgress("Analyzing your workflow…", 5);
 
-  // Strip markdown fences if the model wrapped the JSON
-  let jsonText = rawText;
-  const fenceMatch = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) {
-    jsonText = fenceMatch[1].trim();
-  }
+  // Estimate total chars for a full pipeline spec — used for progress scaling.
+  // Most specs are 8k–20k chars. We use 18k as the denominator.
+  const ESTIMATED_MAX_CHARS = 18000;
+  let accumulatedText = "";
+  let accumulatedChars = 0;
+  let lastPercent = 5;
+  let lastStep = "Analyzing your workflow…";
 
-  // If still not starting with {, try to find the first { ... last }
-  if (!jsonText.startsWith("{")) {
-    const start = jsonText.indexOf("{");
-    const end = jsonText.lastIndexOf("}");
-    if (start !== -1 && end !== -1 && end > start) {
-      jsonText = jsonText.slice(start, end + 1);
+  const stream = client.messages.stream({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 8000,
+    system: PIPELINE_ARCHITECT_PROMPT,
+    messages: [{ role: "user", content: userInput }],
+  });
+
+  stream.on("text", (delta: string) => {
+    accumulatedText += delta;
+    accumulatedChars += delta.length;
+
+    const ratio = Math.min(accumulatedChars / ESTIMATED_MAX_CHARS, 1);
+    const percent = Math.round(10 + ratio * 68); // 10% → 78%
+
+    let step: string;
+    if (ratio < 0.06) step = "Designing pipeline architecture…";
+    else if (ratio < 0.25) step = "Identifying agents and roles…";
+    else if (ratio < 0.52) step = "Writing agent system prompts…";
+    else if (ratio < 0.75) step = "Configuring orchestration flow…";
+    else step = "Finalizing pipeline specification…";
+
+    // Emit on step change or every 5% of progress
+    if (step !== lastStep || percent >= lastPercent + 5) {
+      onProgress(step, percent);
+      lastStep = step;
+      lastPercent = percent;
     }
-  }
+  });
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return {
-      success: false,
-      error: "Invalid JSON returned by Meta-Agent",
-      raw: rawText,
-    };
-  }
+  await stream.finalMessage();
 
-  // Normalize known enum fields that the LLM may produce with slight variations
-  if (parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).agents)) {
-    const ON_FAILURE_VALUES = new Set([
-      "retry_3x_then_notify", "skip_and_continue", "halt_pipeline", "escalate_to_human",
-    ]);
-    function normalizeOnFailure(value: string): string {
-      if (ON_FAILURE_VALUES.has(value)) return value;
-      const v = value.toLowerCase();
-      if (v.includes("halt")) return "halt_pipeline";
-      if (v.includes("skip")) return "skip_and_continue";
-      if (v.includes("escalate") || v.includes("human")) return "escalate_to_human";
-      return "retry_3x_then_notify";
-    }
+  onProgress("Parsing specification…", 83);
+  const result = parsePipelineResponse(accumulatedText.trim());
 
-    for (const agent of (parsed as Record<string, unknown[]>).agents) {
-      if (agent && typeof agent === "object") {
-        const a = agent as Record<string, unknown>;
-        if (typeof a.on_failure === "string") {
-          a.on_failure = normalizeOnFailure(a.on_failure);
-        }
-      }
-    }
-  }
-
-  const validation = validatePipelineSpec(parsed);
-
-  if (validation.valid) {
-    return { success: true, spec: validation.spec };
-  }
-
-  return {
-    success: false,
-    error: `Pipeline spec validation failed:\n${validation.errors.join("\n")}`,
-    raw: rawText,
-  };
+  onProgress(
+    result.success ? "Validation passed — pipeline ready." : "Validation failed.",
+    95
+  );
+  return result;
 }

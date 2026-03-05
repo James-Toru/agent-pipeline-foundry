@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import AgentStatusCard from "@/components/runs/AgentStatusCard";
 import ApprovalGate from "@/components/runs/ApprovalGate";
+import { Badge } from "@/components/ui/badge";
 import type {
   PipelineSpec,
   PipelineRunStatus,
@@ -13,28 +14,26 @@ import type {
   AgentSpec,
   ApprovalRequest,
 } from "@/types/pipeline";
+import {
+  ChevronLeft,
+  Bot,
+  Clock,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+} from "lucide-react";
 
-const RUN_STATUS_STYLES: Record<
+type BadgeVariant = "default" | "info" | "success" | "warning" | "error";
+
+const RUN_STATUS_CONFIG: Record<
   PipelineRunStatus,
-  { dot: string; text: string; label: string }
+  { badge: BadgeVariant; label: string; ping?: boolean }
 > = {
-  pending: { dot: "bg-zinc-500", text: "text-zinc-400", label: "Pending" },
-  running: {
-    dot: "bg-blue-400 animate-pulse",
-    text: "text-blue-400",
-    label: "Running",
-  },
-  paused: {
-    dot: "bg-amber-400 animate-pulse",
-    text: "text-amber-400",
-    label: "Paused — Awaiting Approval",
-  },
-  completed: {
-    dot: "bg-emerald-400",
-    text: "text-emerald-400",
-    label: "Completed",
-  },
-  failed: { dot: "bg-red-400", text: "text-red-400", label: "Failed" },
+  pending: { badge: "default", label: "Pending" },
+  running: { badge: "info", label: "Running", ping: true },
+  paused: { badge: "warning", label: "Paused — Awaiting Approval", ping: true },
+  completed: { badge: "success", label: "Completed" },
+  failed: { badge: "error", label: "Failed" },
 };
 
 interface RunData {
@@ -77,7 +76,6 @@ export default function RunDashboardPage() {
     }
   }, [runId]);
 
-  // Initial fetch
   useEffect(() => {
     fetchRun();
   }, [fetchRun]);
@@ -86,7 +84,6 @@ export default function RunDashboardPage() {
   useEffect(() => {
     const supabase = supabaseRef.current;
 
-    // Subscribe to agent_messages changes for this run
     const messagesChannel = supabase
       .channel(`run-messages-${runId}`)
       .on(
@@ -112,7 +109,6 @@ export default function RunDashboardPage() {
       )
       .subscribe();
 
-    // Subscribe to pipeline_runs changes
     const runChannel = supabase
       .channel(`run-status-${runId}`)
       .on(
@@ -132,7 +128,6 @@ export default function RunDashboardPage() {
       )
       .subscribe();
 
-    // Subscribe to approval_requests changes
     const approvalsChannel = supabase
       .channel(`run-approvals-${runId}`)
       .on(
@@ -178,7 +173,7 @@ export default function RunDashboardPage() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
+        <Loader2 className="size-6 text-zinc-500 animate-spin" />
       </div>
     );
   }
@@ -189,9 +184,10 @@ export default function RunDashboardPage() {
         <p className="text-lg">Run not found.</p>
         <Link
           href="/pipelines"
-          className="mt-3 text-sm text-zinc-400 hover:text-white"
+          className="mt-3 flex items-center gap-1 text-sm text-zinc-400 hover:text-white transition-colors"
         >
-          Back to pipelines &rarr;
+          <ChevronLeft className="size-4" />
+          Back to pipelines
         </Link>
       </div>
     );
@@ -199,84 +195,86 @@ export default function RunDashboardPage() {
 
   const spec = run.pipelines?.spec;
   const pipelineName = run.pipelines?.name ?? "Pipeline";
-  const statusStyle = RUN_STATUS_STYLES[run.status] ?? RUN_STATUS_STYLES.pending;
+  const statusConfig = RUN_STATUS_CONFIG[run.status] ?? RUN_STATUS_CONFIG.pending;
 
-  // Build a map of agent_id → latest message
-  const messageMap = new Map<string, AgentMessage>();
-  for (const msg of messages) {
-    const existing = messageMap.get(msg.agent_id);
-    if (!existing || new Date(msg.started_at) > new Date(existing.started_at)) {
-      messageMap.set(msg.agent_id, msg);
+  const messageMap = useMemo(() => {
+    const map = new Map<string, AgentMessage>();
+    for (const msg of messages) {
+      const existing = map.get(msg.agent_id);
+      if (!existing || new Date(msg.started_at) > new Date(existing.started_at)) {
+        map.set(msg.agent_id, msg);
+      }
     }
-  }
+    return map;
+  }, [messages]);
 
-  // Pending approvals
-  const pendingApprovals = approvals.filter((a) => a.status === "pending");
+  const pendingApprovals = useMemo(
+    () => approvals.filter((a) => a.status === "pending"),
+    [approvals]
+  );
 
-  // Calculate progress
-  const totalAgents = spec?.agents.length ?? 0;
-  const completedAgents = [...messageMap.values()].filter(
-    (m) => m.status === "completed"
-  ).length;
+  const { completedAgents, progressPercent, totalAgents } = useMemo(() => {
+    const total = spec?.agents.length ?? 0;
+    const completed = [...messageMap.values()].filter(
+      (m) => m.status === "completed"
+    ).length;
+    return {
+      totalAgents: total,
+      completedAgents: completed,
+      progressPercent: total > 0 ? (completed / total) * 100 : 0,
+    };
+  }, [messageMap, spec?.agents.length]);
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
       {/* Header */}
-      <div className="border-b border-zinc-800 px-6 py-4">
+      <div className="border-b border-white/6 bg-zinc-950/80 backdrop-blur-sm px-6 py-4">
         <div className="mx-auto max-w-4xl">
           <div className="flex items-center justify-between">
             <div>
               <Link
                 href={`/pipelines/${run.pipeline_id}`}
-                className="text-sm text-zinc-500 hover:text-white"
+                className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
               >
-                &larr; {pipelineName}
+                <ChevronLeft className="size-4" />
+                {pipelineName}
               </Link>
-              <h1 className="mt-1 text-lg font-semibold text-white">
-                Run Dashboard
-              </h1>
+              <div className="mt-1 flex items-center gap-2.5">
+                <h1 className="text-lg font-semibold text-white">Run Dashboard</h1>
+                <Badge variant={statusConfig.badge} dot>
+                  {statusConfig.label}
+                </Badge>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className={`h-2.5 w-2.5 rounded-full ${statusStyle.dot}`} />
-              <span className={`text-sm font-medium ${statusStyle.text}`}>
-                {statusStyle.label}
-              </span>
-            </div>
+            <code className="text-xs text-zinc-600 font-mono bg-zinc-900 ring-1 ring-white/6 px-2 py-1 rounded-md">
+              {runId.slice(0, 8)}
+            </code>
           </div>
 
           {/* Progress bar */}
           {totalAgents > 0 && (
-            <div className="mt-3">
-              <div className="flex items-center justify-between text-xs text-zinc-500">
-                <span>
-                  {completedAgents} / {totalAgents} agents
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-xs text-zinc-500 mb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Bot className="size-3" />
+                  {completedAgents} / {totalAgents} agents completed
                 </span>
-                <span>
-                  {totalAgents > 0
-                    ? Math.round((completedAgents / totalAgents) * 100)
-                    : 0}
-                  %
-                </span>
+                <span>{Math.round(progressPercent)}%</span>
               </div>
-              <div className="mt-1.5 h-1.5 rounded-full bg-zinc-800">
+              <div className="h-1.5 rounded-full bg-zinc-800/80 ring-1 ring-white/4 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                  style={{
-                    width: `${
-                      totalAgents > 0
-                        ? (completedAgents / totalAgents) * 100
-                        : 0
-                    }%`,
-                  }}
+                  className="h-full rounded-full bg-linear-to-r from-emerald-500 to-emerald-400 shadow-sm shadow-emerald-500/30 transition-all duration-700"
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
             </div>
           )}
 
           {/* Run meta */}
-          <div className="mt-3 flex gap-4 text-xs text-zinc-500">
-            <span>
-              Started:{" "}
+          <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-500">
+            <span className="flex items-center gap-1.5">
+              <Clock className="size-3" />
+              Started{" "}
               {new Date(run.started_at).toLocaleTimeString("en-US", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -284,8 +282,9 @@ export default function RunDashboardPage() {
               })}
             </span>
             {run.completed_at && (
-              <span>
-                Ended:{" "}
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="size-3" />
+                Ended{" "}
                 {new Date(run.completed_at).toLocaleTimeString("en-US", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -293,9 +292,6 @@ export default function RunDashboardPage() {
                 })}
               </span>
             )}
-            <span className="font-mono text-zinc-600">
-              {runId.slice(0, 8)}
-            </span>
           </div>
         </div>
       </div>
@@ -303,9 +299,9 @@ export default function RunDashboardPage() {
       {/* Main content */}
       <div className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-4xl space-y-6">
-          {/* Pending approvals (prominent) */}
+          {/* Pending approvals */}
           {pendingApprovals.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-3 animate-fade-up">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-400">
                 Action Required
               </h2>
@@ -359,10 +355,11 @@ export default function RunDashboardPage() {
           {/* Input data */}
           {run.input_data && Object.keys(run.input_data).length > 0 && (
             <details>
-              <summary className="cursor-pointer text-sm text-zinc-500 hover:text-zinc-300">
+              <summary className="flex items-center gap-1.5 cursor-pointer text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+                <ChevronDown className="size-3.5 chevron-icon" />
                 Pipeline input data
               </summary>
-              <pre className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-xs text-zinc-400">
+              <pre className="mt-2 rounded-xl ring-1 ring-white/6 bg-zinc-900 p-4 text-xs text-zinc-400">
                 {JSON.stringify(run.input_data, null, 2)}
               </pre>
             </details>

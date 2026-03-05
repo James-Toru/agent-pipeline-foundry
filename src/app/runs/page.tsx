@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { PipelineRunStatus } from "@/types/pipeline";
+import { formatDateTime } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonCard } from "@/components/ui/skeleton-card";
+import { PlayCircle, ChevronRight } from "lucide-react";
 
 interface RunRecord {
   id: string;
@@ -14,22 +19,14 @@ interface RunRecord {
   pipelines: { name: string } | null;
 }
 
-const STATUS_STYLES: Record<string, { dot: string; text: string }> = {
+const STATUS_STYLES: Record<string, { dot: string; text: string; ping?: boolean }> = {
   pending: { dot: "bg-zinc-500", text: "text-zinc-400" },
-  running: { dot: "bg-blue-400 animate-pulse", text: "text-blue-400" },
-  paused: { dot: "bg-amber-400 animate-pulse", text: "text-amber-400" },
+  running: { dot: "bg-blue-400", text: "text-blue-400", ping: true },
+  paused: { dot: "bg-amber-400", text: "text-amber-400", ping: true },
   completed: { dot: "bg-emerald-400", text: "text-emerald-400" },
   failed: { dot: "bg-red-400", text: "text-red-400" },
 };
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 export default function RunsListPage() {
   const [runs, setRuns] = useState<RunRecord[]>([]);
@@ -52,44 +49,46 @@ export default function RunsListPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
+    <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-xl font-semibold text-white">Pipeline Runs</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          All pipeline executions and their statuses.
-        </p>
+        <PageHeader
+          icon={<PlayCircle className="size-4" />}
+          title="Pipeline Runs"
+          description="All pipeline executions and their statuses."
+        />
 
         {isLoading ? (
-          <div className="mt-6 space-y-3">
+          <div className="space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div
-                key={i}
-                className="h-16 animate-pulse rounded-lg border border-zinc-800 bg-zinc-900"
-              />
+              <SkeletonCard key={i} className="h-18" />
             ))}
           </div>
         ) : runs.length === 0 ? (
-          <div className="mt-12 text-center">
-            <p className="text-zinc-500">No runs yet.</p>
-            <Link
-              href="/pipelines"
-              className="mt-2 inline-block text-sm text-zinc-400 hover:text-white"
-            >
-              Go to pipelines to start a run &rarr;
-            </Link>
-          </div>
+          <EmptyState
+            icon={<PlayCircle className="size-6" />}
+            title="No runs yet"
+            description="Start a run from the Pipelines page to see execution results here."
+            actionLabel="Go to Pipelines"
+            actionHref="/pipelines"
+          />
         ) : (
-          <div className="mt-6 space-y-3">
+          <div className="space-y-3">
             {runs.map((run) => {
               const style = STATUS_STYLES[run.status] ?? STATUS_STYLES.pending;
               return (
                 <Link
                   key={run.id}
                   href={`/runs/${run.id}`}
-                  className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-5 py-4 transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
+                  className="group flex items-center justify-between rounded-xl ring-1 ring-white/6 bg-zinc-900/80 px-5 py-4 transition-all duration-200 hover:ring-white/12 hover:-translate-y-px hover:shadow-lg hover:shadow-black/20"
                 >
                   <div className="flex items-center gap-3">
-                    <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
+                    {/* Status dot with optional ping */}
+                    <span className="relative flex h-2.5 w-2.5">
+                      {style.ping && (
+                        <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${style.dot} opacity-50`} />
+                      )}
+                      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${style.dot}`} />
+                    </span>
                     <div>
                       <span className="text-sm font-medium text-white">
                         {run.pipelines?.name ?? "Unknown Pipeline"}
@@ -104,8 +103,9 @@ export default function RunsListPage() {
                       {run.status}
                     </span>
                     <span className="text-xs text-zinc-600">
-                      {formatDate(run.started_at)}
+                      {formatDateTime(run.started_at)}
                     </span>
+                    <ChevronRight className="size-4 text-zinc-700 group-hover:text-zinc-400 transition-colors" />
                   </div>
                 </Link>
               );

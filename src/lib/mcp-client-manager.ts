@@ -36,16 +36,14 @@ const TOOL_NAME_MAP: Record<ToolId, string> = {
 
 function getSimulationFallback(
   toolId: ToolId,
-  input: Record<string, unknown>
+  _input: Record<string, unknown>
 ): string {
-  return JSON.stringify({
-    status: "simulated",
-    warning: `MCP server not available for ${toolId}. Using simulation fallback.`,
-    data: {
-      message: `Simulated result for ${toolId}`,
-      input,
-    },
-  });
+  return (
+    `ERROR: Tool "${toolId}" is unavailable. The required MCP server is not configured or failed to start. ` +
+    `Do NOT retry this tool — it will fail again. ` +
+    `Proceed with your task using the information you already have, ` +
+    `or produce your best output based on your own knowledge.`
+  );
 }
 
 // ── MCP Client Manager ──────────────────────────────────────────────────────
@@ -67,6 +65,17 @@ export class MCPClientManager {
 
       const config = getServerForTool(toolId);
       if (config && !neededServers.has(config.name)) {
+        // Skip servers whose required env vars are empty
+        const missingEnv = Object.entries(config.env ?? {}).filter(
+          ([, v]) => !v
+        );
+        if (missingEnv.length > 0) {
+          const keys = missingEnv.map(([k]) => k).join(", ");
+          console.warn(
+            `[MCP] Skipping server "${config.name}" — missing env: ${keys}`
+          );
+          continue;
+        }
         neededServers.set(config.name, config);
       }
     }
