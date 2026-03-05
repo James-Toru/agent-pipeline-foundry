@@ -160,6 +160,35 @@ export default function RunDashboardPage() {
     };
   }, [runId]);
 
+  // All useMemo hooks must be declared before any early returns (Rules of Hooks)
+  const messageMap = useMemo(() => {
+    const map = new Map<string, AgentMessage>();
+    for (const msg of messages) {
+      const existing = map.get(msg.agent_id);
+      if (!existing || new Date(msg.started_at) > new Date(existing.started_at)) {
+        map.set(msg.agent_id, msg);
+      }
+    }
+    return map;
+  }, [messages]);
+
+  const pendingApprovals = useMemo(
+    () => approvals.filter((a) => a.status === "pending"),
+    [approvals]
+  );
+
+  const { completedAgents, progressPercent, totalAgents } = useMemo(() => {
+    const total = run?.pipelines?.spec?.agents.length ?? 0;
+    const completed = [...messageMap.values()].filter(
+      (m) => m.status === "completed"
+    ).length;
+    return {
+      totalAgents: total,
+      completedAgents: completed,
+      progressPercent: total > 0 ? (completed / total) * 100 : 0,
+    };
+  }, [messageMap, run?.pipelines?.spec?.agents.length]);
+
   function handleApprovalDecision(approvalId: string, decision: "approved" | "rejected") {
     setApprovals((prev) =>
       prev.map((a) =>
@@ -196,34 +225,6 @@ export default function RunDashboardPage() {
   const spec = run.pipelines?.spec;
   const pipelineName = run.pipelines?.name ?? "Pipeline";
   const statusConfig = RUN_STATUS_CONFIG[run.status] ?? RUN_STATUS_CONFIG.pending;
-
-  const messageMap = useMemo(() => {
-    const map = new Map<string, AgentMessage>();
-    for (const msg of messages) {
-      const existing = map.get(msg.agent_id);
-      if (!existing || new Date(msg.started_at) > new Date(existing.started_at)) {
-        map.set(msg.agent_id, msg);
-      }
-    }
-    return map;
-  }, [messages]);
-
-  const pendingApprovals = useMemo(
-    () => approvals.filter((a) => a.status === "pending"),
-    [approvals]
-  );
-
-  const { completedAgents, progressPercent, totalAgents } = useMemo(() => {
-    const total = spec?.agents.length ?? 0;
-    const completed = [...messageMap.values()].filter(
-      (m) => m.status === "completed"
-    ).length;
-    return {
-      totalAgents: total,
-      completedAgents: completed,
-      progressPercent: total > 0 ? (completed / total) * 100 : 0,
-    };
-  }, [messageMap, spec?.agents.length]);
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
