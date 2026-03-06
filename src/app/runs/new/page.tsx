@@ -26,12 +26,17 @@ function NewRunForm() {
   const [pipeline, setPipeline] = useState<PipelineRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    action: string | null;
+    integration: string | null;
+    settings_url: string | null;
+  } | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!pipelineId) {
-      setError("No pipeline specified.");
+      setError({ message: "No pipeline specified.", action: null, integration: null, settings_url: null });
       setIsLoading(false);
       return;
     }
@@ -49,7 +54,7 @@ function NewRunForm() {
         }
         setFormData(initial);
       } catch {
-        setError("Failed to load pipeline.");
+        setError({ message: "Failed to load pipeline.", action: null, integration: null, settings_url: null });
       } finally {
         setIsLoading(false);
       }
@@ -82,7 +87,12 @@ function NewRunForm() {
     const schema = pipeline.spec.input_schema;
     for (const [key, field] of Object.entries(schema)) {
       if (field.required && !formData[key]?.trim()) {
-        setError(`"${key}" is required.`);
+        setError({
+          message: `"${key}" is required.`,
+          action: "Fill in all required fields before starting the run.",
+          integration: null,
+          settings_url: null,
+        });
         return;
       }
     }
@@ -104,15 +114,27 @@ function NewRunForm() {
         body: JSON.stringify({ pipeline_id: pipelineId, input_data }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to start run");
+        setError({
+          message: data.error ?? "Failed to start run",
+          action: data.action ?? null,
+          integration: data.integration ?? null,
+          settings_url: data.settings_url ?? null,
+        });
+        setIsStarting(false);
+        return;
       }
 
-      const data = await res.json();
       router.push(`/runs/${data.run.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start run.");
+      setError({
+        message: err instanceof Error ? err.message : "Failed to connect to the server",
+        action: "Check your internet connection and try again.",
+        integration: null,
+        settings_url: null,
+      });
       setIsStarting(false);
     }
   }
@@ -134,7 +156,7 @@ function NewRunForm() {
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 ring-1 ring-white/6 mb-4">
           <AlertCircle className="size-6 text-zinc-500" />
         </div>
-        <p className="text-lg font-medium text-white">{error || "Pipeline not found."}</p>
+        <p className="text-lg font-medium text-white">{error?.message || "Pipeline not found."}</p>
         <Link
           href="/pipelines"
           className="mt-3 flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
@@ -260,9 +282,22 @@ function NewRunForm() {
 
             {/* Error */}
             {error && (
-              <div className="flex items-start gap-2 rounded-xl ring-1 ring-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                <AlertCircle className="size-4 mt-0.5 shrink-0" />
-                {error}
+              <div className="border border-red-500/50 bg-red-950/30 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="size-4 mt-0.5 shrink-0 text-red-400" />
+                  <p className="text-red-300 text-sm font-medium">{error.message}</p>
+                </div>
+                {error.action && (
+                  <p className="text-red-200/70 text-xs mt-2 ml-6">{error.action}</p>
+                )}
+                {error.settings_url && (
+                  <Link
+                    href={error.settings_url}
+                    className="inline-block mt-2 ml-6 text-xs text-red-400 hover:text-red-300 underline underline-offset-2"
+                  >
+                    Go to Settings &rarr;
+                  </Link>
+                )}
               </div>
             )}
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { runPipeline } from "@/lib/orchestrator";
 import { checkRateLimit, RUN_LIMIT } from "@/lib/rate-limiter";
+import { checkRequiredIntegrations } from "@/lib/pipeline-errors";
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,6 +46,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Pre-flight integration check
+    const integrationErrors = checkRequiredIntegrations(pipeline.spec);
+    if (integrationErrors.length > 0) {
+      const firstError = integrationErrors[0];
+      return NextResponse.json(
+        {
+          error: firstError.user_message,
+          action: firstError.action,
+          error_code: firstError.code,
+          integration: firstError.integration,
+          settings_url: "/settings",
+        },
+        { status: 400 }
+      );
+    }
+
     // Create the run record
     const { data: run, error: runError } = await supabase
       .from("pipeline_runs")
@@ -68,15 +85,30 @@ export async function POST(request: NextRequest) {
     // The orchestrator writes status updates to Supabase for Realtime
     runPipeline(run.id, pipeline.spec, input_data ?? {}).catch((err) => {
       console.error(`Pipeline run ${run.id} failed:`, err);
-      // Update run status to failed
+      // Orchestrator's own catch should have written structured errors already.
+      // This is a safety net for unexpected crashes only.
       createSupabaseServerClient().then((sb) =>
         sb
           .from("pipeline_runs")
-          .update({
-            status: "failed",
-            completed_at: new Date().toISOString(),
-          })
+          .select("status")
           .eq("id", run.id)
+          .single()
+          .then(({ data }) => {
+            if (data?.status !== "failed") {
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              sb.from("pipeline_runs")
+                .update({
+                  status: "failed",
+                  completed_at: new Date().toISOString(),
+                  error_code: "UNKNOWN_ERROR",
+                  error_message: errorMsg,
+                  error_user_message: "An unexpected error occurred during this pipeline run.",
+                  error_action: "Check the error details below. If the problem persists contact support with the run ID.",
+                })
+                .eq("id", run.id)
+                .then(() => {});
+            }
+          })
       );
     });
 

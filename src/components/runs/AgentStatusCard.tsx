@@ -2,6 +2,7 @@
 
 import type { AgentMessage, AgentSpec } from "@/types/pipeline";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import {
   Clock,
   Loader2,
@@ -97,10 +98,43 @@ export default function AgentStatusCard({
       </div>
 
       {/* Error */}
-      {message?.error && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg ring-1 ring-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-          <XCircle className="size-3 mt-0.5 shrink-0" />
-          {message.error}
+      {message?.status === "failed" && (
+        <div className="mt-3 space-y-2">
+          <div className="bg-red-950/40 border border-red-500/40 rounded-lg p-3">
+            <p className="text-red-300 text-sm font-medium">
+              {message.error_user_message ?? message.error ?? "This agent failed to complete"}
+            </p>
+
+            {message.error_action && (
+              <p className="text-red-200/70 text-xs mt-2">
+                {message.error_action}
+              </p>
+            )}
+
+            {message.error_details &&
+              typeof message.error_details === "object" &&
+              (message.error_details as Record<string, unknown>).settings_url ? (
+                <Link
+                  href={(message.error_details as Record<string, unknown>).settings_url as string}
+                  className="inline-block mt-2 text-xs text-red-400 hover:text-red-300 underline underline-offset-2"
+                >
+                  Go to Settings to fix this &rarr;
+                </Link>
+              ) : null}
+          </div>
+
+          <details className="group">
+            <summary className="text-xs text-red-400/60 cursor-pointer hover:text-red-400/80 list-none flex items-center gap-1">
+              <span className="group-open:rotate-90 transition-transform inline-block text-[10px]">{"\u25B6"}</span>
+              Technical details
+            </summary>
+            <div className="mt-2 bg-black/30 rounded-lg p-2">
+              <p className="text-xs text-red-300/50 font-mono break-all whitespace-pre-wrap">
+                {message.error_code ? <span>Code: {message.error_code}{"\n"}</span> : null}
+                {message.error}
+              </p>
+            </div>
+          </details>
         </div>
       )}
 

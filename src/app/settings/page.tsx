@@ -9,6 +9,9 @@ import {
   Mail,
   Calendar,
   Search,
+  Database,
+  MessageSquare,
+  BookOpen,
   CheckCircle2,
   Circle,
   ChevronUp,
@@ -18,13 +21,19 @@ import {
   Loader2,
   AlertCircle,
   Zap,
+  Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface IntegrationStatus {
   gmail: { configured: boolean };
   google_calendar: { configured: boolean };
   brave_search: { configured: boolean };
+  hubspot: { configured: boolean };
+  slack: { configured: boolean };
+  notion: { configured: boolean };
 }
 
 interface IntegrationConfig {
@@ -34,7 +43,14 @@ interface IntegrationConfig {
   tint: string;
   iconColor: string;
   description: string;
-  fields: { key: string; label: string; type: "text" | "password" }[];
+  fields: {
+    key: string;
+    label: string;
+    type: "text" | "password";
+    optional?: boolean;
+    helperText?: string;
+  }[];
+  note?: string;
 }
 
 const INTEGRATIONS: IntegrationConfig[] = [
@@ -53,11 +69,11 @@ const INTEGRATIONS: IntegrationConfig[] = [
   },
   {
     id: "google_calendar",
-    name: "Google Calendar",
+    name: "Google (Gmail, Calendar & Sheets)",
     icon: Calendar,
     tint: "bg-blue-500/10 ring-blue-500/20",
     iconColor: "text-blue-400",
-    description: "Read, create, and find available slots on Google Calendar.",
+    description: "Send emails, manage calendar events, and read/write Google Sheets. One OAuth credential set covers all three.",
     fields: [
       { key: "GOOGLE_CLIENT_ID", label: "Client ID", type: "text" },
       { key: "GOOGLE_CLIENT_SECRET", label: "Client Secret", type: "password" },
@@ -75,7 +91,51 @@ const INTEGRATIONS: IntegrationConfig[] = [
       { key: "BRAVE_API_KEY", label: "API Key", type: "password" },
     ],
   },
+  {
+    id: "hubspot",
+    name: "HubSpot CRM",
+    icon: Database,
+    tint: "bg-amber-500/10 ring-amber-500/20",
+    iconColor: "text-amber-400",
+    description: "Contacts, companies, deals, tasks, notes, and email logging.",
+    fields: [
+      { key: "HUBSPOT_ACCESS_TOKEN", label: "Private App Access Token", type: "password" },
+      { key: "HUBSPOT_PORTAL_ID", label: "Portal ID", type: "text", optional: true },
+    ],
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    icon: MessageSquare,
+    tint: "bg-purple-500/10 ring-purple-500/20",
+    iconColor: "text-purple-400",
+    description: "Send messages, DMs, notifications, and approval gate requests.",
+    fields: [
+      { key: "SLACK_BOT_TOKEN", label: "Bot Token", type: "password" },
+      { key: "SLACK_SIGNING_SECRET", label: "Signing Secret", type: "password" },
+      { key: "SLACK_APPROVAL_CHANNEL", label: "Approval Channel", type: "text", optional: true },
+    ],
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    icon: BookOpen,
+    tint: "bg-indigo-500/10 ring-indigo-500/20",
+    iconColor: "text-indigo-400",
+    description: "Create and update pages and databases in your Notion workspace.",
+    fields: [
+      {
+        key: "NOTION_API_KEY",
+        label: "API Key",
+        type: "password",
+        helperText: "Get this from notion.so/my-integrations",
+      },
+    ],
+    note: "After connecting, you must share each Notion page or database with the Agent Foundry integration. Open the page in Notion → ··· menu → Add connections → Agent Foundry",
+  },
 ];
+
+// ── Integration Card ──────────────────────────────────────────────────────────
 
 function IntegrationCard({
   config,
@@ -142,7 +202,7 @@ function IntegrationCard({
     }
   }
 
-  const isSuccess = message?.toLowerCase().includes("saved");
+  const isSuccess = message?.toLowerCase().includes("updated");
 
   return (
     <Card>
@@ -192,6 +252,9 @@ function IntegrationCard({
               <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-400">
                 {field.type === "password" && <Lock className="size-3" />}
                 {field.label}
+                {field.optional && (
+                  <span className="text-zinc-600 font-normal">(optional)</span>
+                )}
               </label>
               <input
                 type={field.type}
@@ -200,8 +263,18 @@ function IntegrationCard({
                 placeholder={`Enter ${field.label.toLowerCase()}...`}
                 className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 border-0"
               />
+              {field.helperText && (
+                <p className="mt-1 text-xs text-zinc-600">{field.helperText}</p>
+              )}
             </div>
           ))}
+
+          {config.note && (
+            <div className="flex items-start gap-2 rounded-xl ring-1 ring-yellow-500/20 bg-yellow-500/10 px-3 py-2.5 text-xs text-yellow-300">
+              <Info className="size-3.5 mt-0.5 shrink-0 text-yellow-400" />
+              <span>{config.note}</span>
+            </div>
+          )}
 
           {message && (
             <div className={`flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
@@ -275,6 +348,8 @@ function IntegrationCard({
   );
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -302,7 +377,7 @@ export default function SettingsPage() {
         <div className="mx-auto max-w-2xl">
           <div className="h-8 w-48 rounded-lg skeleton-shimmer mb-8" />
           <div className="space-y-3">
-            {[1, 2, 3].map((i) => <SkeletonCard key={i} className="h-20" />)}
+            {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} className="h-20" />)}
           </div>
         </div>
       </div>
@@ -324,8 +399,7 @@ export default function SettingsPage() {
               key={config.id}
               config={config}
               configured={
-                status?.[config.id as keyof IntegrationStatus]?.configured ??
-                false
+                status?.[config.id as keyof IntegrationStatus]?.configured ?? false
               }
             />
           ))}

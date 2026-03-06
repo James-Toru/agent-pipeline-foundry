@@ -44,6 +44,13 @@ interface RunData {
   started_at: string;
   completed_at: string | null;
   pipelines: { name: string; spec: PipelineSpec } | null;
+  // Structured error fields
+  error_code: string | null;
+  error_message: string | null;
+  error_user_message: string | null;
+  error_action: string | null;
+  error_integration: string | null;
+  error_details: Record<string, unknown> | null;
 }
 
 export default function RunDashboardPage() {
@@ -120,9 +127,9 @@ export default function RunDashboardPage() {
           filter: `id=eq.${runId}`,
         },
         (payload) => {
-          const updated = payload.new as RunData;
+          const updated = payload.new as Partial<RunData>;
           setRun((prev) =>
-            prev ? { ...prev, status: updated.status, completed_at: updated.completed_at } : prev
+            prev ? { ...prev, ...updated } : prev
           );
         }
       )
@@ -300,6 +307,42 @@ export default function RunDashboardPage() {
       {/* Main content */}
       <div className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-4xl space-y-6">
+          {/* Pipeline-level error banner */}
+          {run.status === "failed" && run.error_user_message && (
+            <div className="border border-red-500/50 bg-red-950/30 rounded-lg p-5">
+              <div className="flex items-start gap-3">
+                <span className="text-red-400 text-xl mt-0.5 shrink-0">{"\u26A0"}</span>
+                <div className="flex-1">
+                  <h3 className="text-red-400 font-semibold text-base mb-1">Pipeline Failed</h3>
+                  <p className="text-red-200 text-sm">{run.error_user_message}</p>
+                </div>
+              </div>
+
+              {run.error_action && (
+                <div className="mt-3 pt-3 border-t border-red-500/30">
+                  <p className="text-sm font-medium text-red-300 mb-1">How to fix this:</p>
+                  <p className="text-sm text-red-200/80">{run.error_action}</p>
+                  {run.error_integration && (
+                    <Link
+                      href="/settings"
+                      className="inline-flex items-center gap-1 mt-2 text-sm text-red-400 hover:text-red-300 underline underline-offset-2"
+                    >
+                      Go to Settings &rarr;
+                    </Link>
+                  )}
+                </div>
+              )}
+
+              {run.error_code && (
+                <div className="mt-3 pt-3 border-t border-red-500/20">
+                  <p className="text-xs text-red-400/60">
+                    Error code: {run.error_code} | Run ID: {run.id}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Pending approvals */}
           {pendingApprovals.length > 0 && (
             <div className="space-y-3 animate-fade-up">

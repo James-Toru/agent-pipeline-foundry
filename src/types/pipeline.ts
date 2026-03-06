@@ -21,7 +21,40 @@ export type ToolId =
   | "json_transform"
   | "human_approval_request"
   | "pipeline_notify"
-  | "schedule_trigger";
+  | "schedule_trigger"
+  // HubSpot CRM
+  | "hubspot_read_contacts"
+  | "hubspot_write_contact"
+  | "hubspot_read_companies"
+  | "hubspot_write_company"
+  | "hubspot_read_deals"
+  | "hubspot_write_deal"
+  | "hubspot_create_task"
+  | "hubspot_create_note"
+  | "hubspot_send_email"
+  | "hubspot_read_pipeline_stages"
+  // Slack
+  | "slack_send_message"
+  | "slack_send_dm"
+  | "slack_post_notification"
+  | "slack_request_approval"
+  | "slack_create_channel"
+  | "slack_read_messages"
+  // Google Sheets
+  | "sheets_read_rows"
+  | "sheets_write_rows"
+  | "sheets_update_cells"
+  | "sheets_create_spreadsheet"
+  | "sheets_search"
+  | "sheets_format_cells"
+  // Notion
+  | "notion_create_page"
+  | "notion_read_pages"
+  | "notion_update_page"
+  | "notion_append_content"
+  | "notion_create_standalone_page"
+  | "notion_search"
+  | "notion_check_exists";
 
 export type AgentArchetype =
   | "Ingestion"
@@ -44,7 +77,20 @@ export type AgentArchetype =
   | "Deduplication"
   | "Logging"
   | "Notification"
-  | "Watchdog";
+  | "Watchdog"
+  // Integration Agents
+  | "DatabaseWriter"
+  | "DatabaseReader"
+  | "ContentCreator"
+  | "PageCreator"
+  | "DataSync"
+  | "Notifier"
+  | "MessageSender"
+  | "CRMWriter"
+  | "CRMReader"
+  | "Aggregator"
+  | "Formatter"
+  | "Searcher";
 
 export type OnFailurePolicy =
   | "retry_3x_then_notify"
@@ -153,6 +199,13 @@ export interface PipelineRun {
   input_data: Record<string, unknown>;
   started_at: string;
   completed_at: string | null;
+  // Structured error fields
+  error_code: string | null;
+  error_message: string | null;
+  error_user_message: string | null;
+  error_action: string | null;
+  error_integration: string | null;
+  error_details: Record<string, unknown> | null;
 }
 
 export interface AgentMessage {
@@ -165,6 +218,11 @@ export interface AgentMessage {
   error: string | null;
   started_at: string;
   completed_at: string | null;
+  // Structured error fields
+  error_code: string | null;
+  error_user_message: string | null;
+  error_action: string | null;
+  error_details: Record<string, unknown> | null;
 }
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
@@ -211,31 +269,61 @@ const ToolIdSchema = z.enum([
   "human_approval_request",
   "pipeline_notify",
   "schedule_trigger",
+  // HubSpot CRM
+  "hubspot_read_contacts",
+  "hubspot_write_contact",
+  "hubspot_read_companies",
+  "hubspot_write_company",
+  "hubspot_read_deals",
+  "hubspot_write_deal",
+  "hubspot_create_task",
+  "hubspot_create_note",
+  "hubspot_send_email",
+  "hubspot_read_pipeline_stages",
+  // Slack
+  "slack_send_message",
+  "slack_send_dm",
+  "slack_post_notification",
+  "slack_request_approval",
+  "slack_create_channel",
+  "slack_read_messages",
+  // Google Sheets
+  "sheets_read_rows",
+  "sheets_write_rows",
+  "sheets_update_cells",
+  "sheets_create_spreadsheet",
+  "sheets_search",
+  "sheets_format_cells",
+  // Notion
+  "notion_create_page",
+  "notion_read_pages",
+  "notion_update_page",
+  "notion_append_content",
+  "notion_create_standalone_page",
+  "notion_search",
+  "notion_check_exists",
 ]);
 
-const AgentArchetypeSchema = z.enum([
-  "Ingestion",
-  "Enrichment",
-  "Validation",
-  "Transformation",
-  "Research",
-  "Analysis",
-  "Scoring",
-  "Classification",
-  "Copywriter",
-  "Outreach",
-  "Summarization",
-  "Report",
-  "Scheduler",
-  "Router",
-  "OrchestratorSub",
-  "QA",
-  "Compliance",
-  "Deduplication",
-  "Logging",
-  "Notification",
-  "Watchdog",
+const KNOWN_ARCHETYPES = new Set<string>([
+  "Ingestion", "Enrichment", "Validation", "Transformation",
+  "Research", "Analysis", "Scoring", "Classification",
+  "Copywriter", "Outreach", "Summarization", "Report",
+  "Scheduler", "Router", "OrchestratorSub", "QA",
+  "Compliance", "Deduplication", "Logging", "Notification", "Watchdog",
+  // Integration Agents
+  "DatabaseWriter", "DatabaseReader", "ContentCreator", "PageCreator",
+  "DataSync", "Notifier", "MessageSender", "CRMWriter", "CRMReader",
+  "Aggregator", "Formatter", "Searcher",
 ]);
+
+const AgentArchetypeSchema = z.string().refine(
+  (val) => {
+    if (!KNOWN_ARCHETYPES.has(val)) {
+      console.warn(`[Pipeline Validator] Unknown archetype "${val}" — accepting pipeline spec anyway.`);
+    }
+    return true;
+  }
+);
 
 const OnFailurePolicySchema = z.enum([
   "retry_3x_then_notify",

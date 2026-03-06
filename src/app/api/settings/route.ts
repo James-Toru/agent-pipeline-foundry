@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { isHubSpotConfigured } from "@/lib/hubspot-auth";
+import { isSlackConfigured } from "@/lib/slack-auth";
+import { isNotionConfigured } from "@/lib/notion-auth";
 
 // In production, credentials should be stored in a secrets manager
 // (e.g. AWS Secrets Manager, HashiCorp Vault), not .env.local.
@@ -16,6 +19,9 @@ const INTEGRATION_KEYS: Record<string, string[]> = {
     "GOOGLE_REFRESH_TOKEN",
   ],
   brave_search: ["BRAVE_API_KEY"],
+  hubspot: ["HUBSPOT_ACCESS_TOKEN", "HUBSPOT_PORTAL_ID"],
+  slack: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_APPROVAL_CHANNEL"],
+  notion: ["NOTION_API_KEY"],
 };
 
 function isConfigured(keys: string[]): boolean {
@@ -30,24 +36,27 @@ function isConfigured(keys: string[]): boolean {
  * Never returns actual credential values.
  */
 export async function GET() {
-  try {
-    return NextResponse.json(
-      {
-        gmail: { configured: isConfigured(INTEGRATION_KEYS.gmail) },
-        google_calendar: {
-          configured: isConfigured(INTEGRATION_KEYS.google_calendar),
-        },
-        brave_search: {
-          configured: isConfigured(INTEGRATION_KEYS.brave_search),
-        },
+  return NextResponse.json(
+    {
+      gmail: { configured: isConfigured(INTEGRATION_KEYS.gmail) },
+      google_calendar: {
+        configured: isConfigured(INTEGRATION_KEYS.google_calendar),
       },
-      { status: 200 }
-    );
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "An unexpected error occurred.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+      brave_search: {
+        configured: isConfigured(INTEGRATION_KEYS.brave_search),
+      },
+      hubspot: {
+        configured: isHubSpotConfigured(),
+      },
+      slack: {
+        configured: isSlackConfigured(),
+      },
+      notion: {
+        configured: isNotionConfigured(),
+      },
+    },
+    { status: 200 }
+  );
 }
 
 /**
@@ -78,7 +87,7 @@ export async function POST(request: NextRequest) {
     const allowedKeys = INTEGRATION_KEYS[integration];
     const updates: Record<string, string> = {};
     for (const key of allowedKeys) {
-      if (key in credentials) {
+      if (key in credentials && credentials[key] !== "") {
         updates[key] = credentials[key];
       }
     }

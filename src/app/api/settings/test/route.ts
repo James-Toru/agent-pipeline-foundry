@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { isGoogleConfigured, getGoogleAuthClient } from "@/lib/google-auth";
+import { isHubSpotConfigured, getHubSpotClient } from "@/lib/hubspot-auth";
+import { isSlackConfigured, getSlackClient } from "@/lib/slack-auth";
+import { isNotionConfigured, testNotionConnection } from "@/lib/notion-auth";
 
 /**
  * POST /api/settings/test
- * Body: { integration: "gmail" | "google_calendar" | "brave_search" }
- * Tests real API connectivity with the credentials in process.env.
+ * Body: { integration: "gmail" | "google_calendar" | "brave_search" | "hubspot" }
+ * Tests real API connectivity with the stored credentials.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -75,6 +78,52 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: "Brave Search API key is valid",
+        });
+      }
+
+      case "hubspot": {
+        if (!isHubSpotConfigured()) {
+          return NextResponse.json(
+            { success: false, error: "HUBSPOT_ACCESS_TOKEN not configured." },
+            { status: 200 }
+          );
+        }
+        const client = getHubSpotClient();
+        const response = await client.crm.contacts.basicApi.getPage(1);
+        const total = response.results?.length ?? 0;
+        return NextResponse.json({
+          success: true,
+          message: `HubSpot connected — retrieved contacts successfully (${total} returned)`,
+        });
+      }
+
+      case "slack": {
+        if (!isSlackConfigured()) {
+          return NextResponse.json(
+            { success: false, error: "SLACK_BOT_TOKEN not configured." },
+            { status: 200 }
+          );
+        }
+        const client = getSlackClient();
+        const res = await client.auth.test();
+        return NextResponse.json({
+          success: true,
+          message: `Connected as @${res.user} (workspace: ${res.team})`,
+        });
+      }
+
+      case "notion": {
+        if (!isNotionConfigured()) {
+          return NextResponse.json(
+            { success: false, error: "NOTION_API_KEY not configured." },
+            { status: 200 }
+          );
+        }
+        const notionResult = await testNotionConnection();
+        return NextResponse.json({
+          success: notionResult.success,
+          message: notionResult.message,
+          ...(notionResult.success ? {} : { error: notionResult.message }),
         });
       }
 

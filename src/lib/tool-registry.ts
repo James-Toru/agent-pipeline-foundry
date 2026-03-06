@@ -246,6 +246,565 @@ export const TOOL_REGISTRY: Record<ToolId, AnthropicTool> = {
     },
   },
 
+  // HubSpot CRM
+  hubspot_read_contacts: {
+    name: "hubspot_read_contacts",
+    description:
+      "Search HubSpot CRM for contacts by name, email, company, or any text. Returns contact IDs, names, emails, and key properties for matching records.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Free-text search query (name, email, company, etc.)" },
+        limit: { type: "number", description: "Maximum contacts to return (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  hubspot_write_contact: {
+    name: "hubspot_write_contact",
+    description:
+      "Create a new contact or update an existing contact in HubSpot CRM. Use action='create' (default) to create, or action='update' with contact_id to update.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["create", "update"], description: "Action to perform (default: create)" },
+        contact_id: { type: "string", description: "HubSpot contact ID (required for update)" },
+        email: { type: "string", description: "Contact email address" },
+        first_name: { type: "string", description: "Contact first name" },
+        last_name: { type: "string", description: "Contact last name" },
+        phone: { type: "string", description: "Phone number" },
+        company: { type: "string", description: "Company name" },
+        job_title: { type: "string", description: "Job title" },
+        lead_status: { type: "string", description: "HubSpot lead status (e.g. NEW, OPEN, IN_PROGRESS)" },
+        lifecycle_stage: { type: "string", description: "Lifecycle stage (e.g. lead, marketingqualifiedlead, salesqualifiedlead, opportunity, customer)" },
+        properties: { type: "object", description: "Key-value properties to update (for update action)" },
+      },
+    },
+  },
+  hubspot_read_companies: {
+    name: "hubspot_read_companies",
+    description:
+      "Search HubSpot CRM for companies by name, domain, industry, or any text. Returns company IDs and key properties.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Free-text search query (company name, domain, etc.)" },
+        limit: { type: "number", description: "Maximum companies to return (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  hubspot_write_company: {
+    name: "hubspot_write_company",
+    description:
+      "Create a new company record in HubSpot CRM. Returns the created company ID and properties.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Company name (required)" },
+        domain: { type: "string", description: "Company website domain (e.g. acme.com)" },
+        industry: { type: "string", description: "Industry category" },
+        phone: { type: "string", description: "Main phone number" },
+        city: { type: "string", description: "City" },
+        country: { type: "string", description: "Country" },
+        num_employees: { type: "number", description: "Number of employees" },
+        annual_revenue: { type: "number", description: "Annual revenue (USD)" },
+      },
+      required: ["name"],
+    },
+  },
+  hubspot_read_deals: {
+    name: "hubspot_read_deals",
+    description:
+      "Search HubSpot CRM for deals by name, stage, or any text. Returns deal IDs, names, amounts, stages, and key properties.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Free-text search query (deal name, stage, etc.)" },
+        limit: { type: "number", description: "Maximum deals to return (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  hubspot_write_deal: {
+    name: "hubspot_write_deal",
+    description:
+      "Create a new deal or update an existing deal in HubSpot CRM. Use action='create' (default) to create, or action='update' with deal_id to update.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["create", "update"], description: "Action to perform (default: create)" },
+        deal_id: { type: "string", description: "HubSpot deal ID (required for update)" },
+        deal_name: { type: "string", description: "Deal name" },
+        amount: { type: "number", description: "Deal value in USD" },
+        stage: { type: "string", description: "Deal stage ID (e.g. appointmentscheduled, qualifiedtobuy, closedwon, closedlost)" },
+        close_date: { type: "string", description: "Expected close date (ISO 8601)" },
+        pipeline: { type: "string", description: "Pipeline ID (default: 'default')" },
+        owner_id: { type: "string", description: "HubSpot owner ID to assign the deal to" },
+        contact_id: { type: "string", description: "HubSpot contact ID to associate with this deal" },
+        company_id: { type: "string", description: "HubSpot company ID to associate with this deal" },
+        properties: { type: "object", description: "Key-value properties to update (for update action)" },
+      },
+    },
+  },
+  hubspot_create_task: {
+    name: "hubspot_create_task",
+    description:
+      "Create a follow-up task in HubSpot CRM. Optionally associates the task with a contact.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subject: { type: "string", description: "Task subject / title" },
+        body: { type: "string", description: "Task notes or description" },
+        due_date: { type: "string", description: "Task due date (ISO 8601)" },
+        priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"], description: "Task priority (default MEDIUM)" },
+        status: { type: "string", enum: ["NOT_STARTED", "IN_PROGRESS", "WAITING", "DEFERRED", "COMPLETED"], description: "Task status (default NOT_STARTED)" },
+        owner_id: { type: "string", description: "HubSpot owner ID to assign the task to" },
+        contact_id: { type: "string", description: "HubSpot contact ID to associate with this task" },
+      },
+      required: ["subject"],
+    },
+  },
+  hubspot_create_note: {
+    name: "hubspot_create_note",
+    description:
+      "Log a note on a HubSpot CRM record (contact, company, or deal). Useful for capturing meeting notes, call summaries, or research findings.",
+    input_schema: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "Note content (plain text)" },
+        owner_id: { type: "string", description: "HubSpot owner ID authoring the note" },
+        contact_id: { type: "string", description: "HubSpot contact ID to attach the note to" },
+        company_id: { type: "string", description: "HubSpot company ID to attach the note to" },
+        deal_id: { type: "string", description: "HubSpot deal ID to attach the note to" },
+      },
+      required: ["body"],
+    },
+  },
+  hubspot_send_email: {
+    name: "hubspot_send_email",
+    description:
+      "Log an email engagement on a HubSpot contact record. Records the sent email in the CRM timeline.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subject: { type: "string", description: "Email subject line" },
+        body: { type: "string", description: "Email body content (plain text)" },
+        direction: { type: "string", enum: ["EMAIL", "INCOMING_EMAIL", "FORWARDED_EMAIL"], description: "Email direction (default EMAIL for outbound)" },
+        owner_id: { type: "string", description: "HubSpot owner ID who sent the email" },
+        contact_id: { type: "string", description: "HubSpot contact ID to log the email against" },
+      },
+      required: ["subject", "body"],
+    },
+  },
+  hubspot_read_pipeline_stages: {
+    name: "hubspot_read_pipeline_stages",
+    description:
+      "Read all CRM pipelines and their stage definitions from HubSpot. Returns pipeline IDs, names, and stages with their IDs and labels. Use this to look up valid stage IDs before creating or updating deals.",
+    input_schema: {
+      type: "object",
+      properties: {
+        object_type: { type: "string", description: "CRM object type to read pipelines for (default: 'deals')" },
+      },
+    },
+  },
+
+  // Google Sheets
+  sheets_read_rows: {
+    name: "sheets_read_rows",
+    description:
+      "Read rows from a Google Sheets spreadsheet. Returns structured data with headers mapped to values. Supports range selection and row limits.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet_id: { type: "string", description: "Google Sheets file ID from the URL (docs.google.com/spreadsheets/d/[ID])" },
+        sheet_name: { type: "string", description: "Sheet tab name (default: Sheet1)" },
+        range: { type: "string", description: "A1 notation range e.g. 'A1:E50' (default: entire sheet)" },
+        has_header_row: { type: "boolean", description: "Treat first row as column headers (default: true)" },
+        limit: { type: "number", description: "Maximum number of rows to return (default: 100)" },
+      },
+      required: ["spreadsheet_id"],
+    },
+  },
+  sheets_write_rows: {
+    name: "sheets_write_rows",
+    description:
+      "Write or append rows to a Google Sheets spreadsheet from structured data objects.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet_id: { type: "string", description: "Google Sheets file ID" },
+        rows: { type: "array", description: "Array of objects to write, each object is one row" },
+        sheet_name: { type: "string", description: "Sheet tab name (default: Sheet1)" },
+        mode: { type: "string", enum: ["append", "overwrite"], description: "Write mode (default: append)" },
+        start_row: { type: "number", description: "Starting row number for overwrite mode (default: 2)" },
+        include_headers: { type: "boolean", description: "Write column headers as first row (default: false)" },
+      },
+      required: ["spreadsheet_id", "rows"],
+    },
+  },
+  sheets_update_cells: {
+    name: "sheets_update_cells",
+    description:
+      "Update specific cells in a Google Sheets spreadsheet using A1 notation. Supports multiple cell ranges in a single call.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet_id: { type: "string", description: "Google Sheets file ID" },
+        updates: {
+          type: "array",
+          description: "Array of cell update objects, each with a range and value",
+          items: {
+            type: "object",
+            properties: {
+              range: { type: "string", description: "A1 notation e.g. 'B5' or 'B5:D7'" },
+              value: { description: "Value to write (string, number, or boolean)" },
+            },
+          },
+        },
+        sheet_name: { type: "string", description: "Sheet tab name (default: Sheet1)" },
+      },
+      required: ["spreadsheet_id", "updates"],
+    },
+  },
+  sheets_create_spreadsheet: {
+    name: "sheets_create_spreadsheet",
+    description:
+      "Create a new Google Sheets spreadsheet with optional tabs, column headers, and sharing settings.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Spreadsheet title" },
+        sheets: { type: "array", description: "Array of sheet/tab names to create (default: ['Sheet1'])", items: { type: "string" } },
+        headers: { type: "object", description: "Map of sheet name to array of column header strings e.g. { 'Leads': ['Name', 'Email', 'Score'] }" },
+        share_with: { type: "array", description: "Email addresses to share the spreadsheet with (viewer access)", items: { type: "string" } },
+      },
+      required: ["title"],
+    },
+  },
+  sheets_search: {
+    name: "sheets_search",
+    description:
+      "Search for rows in a Google Sheet where a specific column matches a value. Supports exact, contains, and starts_with matching.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet_id: { type: "string", description: "Google Sheets file ID" },
+        search_column: { type: "string", description: "Column header name to search within" },
+        search_value: { type: "string", description: "Value to search for" },
+        sheet_name: { type: "string", description: "Sheet tab name (default: Sheet1)" },
+        match_type: { type: "string", enum: ["exact", "contains", "starts_with"], description: "Match type (default: contains)" },
+        return_columns: { type: "array", description: "Columns to include in results (default: all)", items: { type: "string" } },
+      },
+      required: ["spreadsheet_id", "search_column", "search_value"],
+    },
+  },
+  sheets_format_cells: {
+    name: "sheets_format_cells",
+    description:
+      "Apply formatting to a range of cells in a Google Sheet including bold, colors, alignment, and number formats.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet_id: { type: "string", description: "Google Sheets file ID" },
+        range: { type: "string", description: "A1 notation range e.g. 'A1:E1' or 'B5'" },
+        format: {
+          type: "object",
+          description: "Formatting options to apply",
+          properties: {
+            bold: { type: "boolean" },
+            italic: { type: "boolean" },
+            font_size: { type: "number" },
+            text_color: { type: "string", description: "Hex color e.g. '#FF0000'" },
+            background_color: { type: "string", description: "Hex color e.g. '#FFFF00'" },
+            horizontal_alignment: { type: "string", enum: ["LEFT", "CENTER", "RIGHT"] },
+            number_format: { type: "string", enum: ["TEXT", "NUMBER", "CURRENCY", "DATE", "PERCENT"] },
+          },
+        },
+        sheet_name: { type: "string", description: "Sheet tab name (default: Sheet1)" },
+      },
+      required: ["spreadsheet_id", "range", "format"],
+    },
+  },
+
+  // Slack
+  slack_send_message: {
+    name: "slack_send_message",
+    description:
+      "Post a message to a Slack channel. Supports plain text and optional thread replies.",
+    input_schema: {
+      type: "object",
+      properties: {
+        channel: { type: "string", description: "Channel name (e.g. #general) or channel ID" },
+        text: { type: "string", description: "Message text to post" },
+        thread_ts: { type: "string", description: "Thread timestamp to reply in a thread (optional)" },
+      },
+      required: ["channel", "text"],
+    },
+  },
+  slack_send_dm: {
+    name: "slack_send_dm",
+    description:
+      "Send a direct message to a Slack user by their user ID.",
+    input_schema: {
+      type: "object",
+      properties: {
+        user_id: { type: "string", description: "Slack user ID (e.g. U01234567)" },
+        text: { type: "string", description: "Message text to send" },
+      },
+      required: ["user_id", "text"],
+    },
+  },
+  slack_post_notification: {
+    name: "slack_post_notification",
+    description:
+      "Post a formatted notification with a title and body to a Slack channel. Supports color-coded attachments (good/warning/danger).",
+    input_schema: {
+      type: "object",
+      properties: {
+        channel: { type: "string", description: "Channel name or ID" },
+        title: { type: "string", description: "Notification title (shown as main message text)" },
+        body: { type: "string", description: "Notification body text (shown as attachment)" },
+        color: { type: "string", enum: ["good", "warning", "danger"], description: "Attachment color (default: good)" },
+      },
+      required: ["channel", "title", "body"],
+    },
+  },
+  slack_request_approval: {
+    name: "slack_request_approval",
+    description:
+      "Post an approval request to a Slack channel with Approve/Reject buttons. The pipeline will pause until a decision is made.",
+    input_schema: {
+      type: "object",
+      properties: {
+        channel: { type: "string", description: "Channel name or ID to post the approval request" },
+        approval_id: { type: "string", description: "UUID of the approval_request record in the database" },
+        title: { type: "string", description: "Short description of what needs approval" },
+        context: { type: "string", description: "Detailed context for the reviewer (Markdown supported)" },
+      },
+      required: ["channel", "approval_id", "title", "context"],
+    },
+  },
+  slack_create_channel: {
+    name: "slack_create_channel",
+    description:
+      "Create a new Slack channel. Channel names are automatically lowercased and spaces replaced with hyphens.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Channel name (will be lowercased and slugified)" },
+        is_private: { type: "boolean", description: "Whether to create a private channel (default: false)" },
+      },
+      required: ["name"],
+    },
+  },
+  slack_read_messages: {
+    name: "slack_read_messages",
+    description:
+      "Read recent messages from a Slack channel. Returns message timestamps, user IDs, and text content.",
+    input_schema: {
+      type: "object",
+      properties: {
+        channel: { type: "string", description: "Channel name or ID to read messages from" },
+        limit: { type: "number", description: "Maximum number of messages to return (default 10)" },
+      },
+      required: ["channel"],
+    },
+  },
+
+  // ============================================
+  // NOTION TOOLS
+  // ============================================
+  notion_create_page: {
+    name: "notion_create_page",
+    description:
+      "Create a new page in a Notion database with properties and optional content. Properties are key-value pairs that match the database schema. Content supports markdown-like formatting (# headings, - bullets, 1. numbered lists).",
+    input_schema: {
+      type: "object",
+      properties: {
+        database_id: {
+          type: "string",
+          description:
+            "Notion database ID — found in the database URL after the workspace name (notion.so/workspace/[DATABASE_ID]?v=...)",
+        },
+        properties: {
+          type: "object",
+          description:
+            "Key-value pairs matching the database schema. String values become rich_text. ISO dates (YYYY-MM-DD) become date fields. Booleans become checkboxes. Numbers become number fields. The title/name field is required.",
+        },
+        content: {
+          type: "string",
+          description:
+            "Optional page body content in markdown-like format. Supports # heading1, ## heading2, - bullets, 1. numbered lists, plain paragraphs.",
+        },
+        icon: {
+          type: "string",
+          description: "Optional single emoji to use as the page icon",
+        },
+      },
+      required: ["database_id", "properties"],
+    },
+  },
+  notion_read_pages: {
+    name: "notion_read_pages",
+    description:
+      "Read and query pages from a Notion database with optional filtering and sorting. Returns structured page data with all properties extracted as readable strings.",
+    input_schema: {
+      type: "object",
+      properties: {
+        database_id: {
+          type: "string",
+          description: "Notion database ID to query",
+        },
+        filter: {
+          type: "object",
+          description:
+            "Optional filter: { property: string, value: string, type: 'title'|'rich_text'|'select'|'checkbox'|'number' }",
+        },
+        sort_by: {
+          type: "string",
+          description: "Property name to sort results by",
+        },
+        sort_direction: {
+          type: "string",
+          description: "Sort direction: 'ascending' or 'descending' (default: descending)",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum pages to return (default 10, max 50)",
+        },
+      },
+      required: ["database_id"],
+    },
+  },
+  notion_update_page: {
+    name: "notion_update_page",
+    description:
+      "Update properties, icon, or archive status of a Notion page. Only provided properties are updated — existing properties not listed are preserved.",
+    input_schema: {
+      type: "object",
+      properties: {
+        page_id: {
+          type: "string",
+          description: "Notion page ID to update",
+        },
+        properties: {
+          type: "object",
+          description: "Properties to update as key-value pairs",
+        },
+        icon: {
+          type: "string",
+          description: "New emoji icon for the page",
+        },
+        archived: {
+          type: "boolean",
+          description: "Set to true to archive (delete) the page",
+        },
+      },
+      required: ["page_id"],
+    },
+  },
+  notion_append_content: {
+    name: "notion_append_content",
+    description:
+      "Append content blocks to an existing Notion page. Supports markdown-like formatting for headings, bullets, numbered lists, and paragraphs. Automatically batches requests for content over 100 blocks.",
+    input_schema: {
+      type: "object",
+      properties: {
+        page_id: {
+          type: "string",
+          description: "Notion page ID to append content to",
+        },
+        content: {
+          type: "string",
+          description:
+            "Content to append in markdown-like format. Supports # h1, ## h2, ### h3, - bullets, 1. numbered, plain paragraphs.",
+        },
+        add_divider: {
+          type: "boolean",
+          description:
+            "Add a horizontal divider line before the new content (default: false)",
+        },
+      },
+      required: ["page_id", "content"],
+    },
+  },
+  notion_create_standalone_page: {
+    name: "notion_create_standalone_page",
+    description:
+      "Create a standalone Notion page inside a parent page. Unlike database pages, standalone pages have a title and free-form content blocks but no database schema properties.",
+    input_schema: {
+      type: "object",
+      properties: {
+        parent_page_id: {
+          type: "string",
+          description: "ID of the parent page that will contain the new page",
+        },
+        title: {
+          type: "string",
+          description: "Title for the new page",
+        },
+        content: {
+          type: "string",
+          description: "Optional page body in markdown-like format",
+        },
+        icon: {
+          type: "string",
+          description: "Optional emoji icon for the page",
+        },
+      },
+      required: ["parent_page_id", "title"],
+    },
+  },
+  notion_search: {
+    name: "notion_search",
+    description:
+      "Search across the entire Notion workspace for pages and databases matching a query string. Returns only results whose title actually matches the query. For checking if a specific record exists in a database, prefer notion_check_exists instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search term to look for across page titles and content",
+        },
+        filter_type: {
+          type: "string",
+          description:
+            "Restrict results to 'page' or 'database'. Omit to search both.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum results to return (default 10, max 20)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  notion_check_exists: {
+    name: "notion_check_exists",
+    description:
+      "Check if a specific contact or record already exists in a Notion database by doing an exact title match. Returns exists: true/false and the page_id if found. Use this instead of notion_search when you need to check for a specific record before creating it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        database_id: {
+          type: "string",
+          description: "The Notion database ID to search",
+        },
+        contact_name: {
+          type: "string",
+          description: "The exact name to search for",
+        },
+        title_property: {
+          type: "string",
+          description:
+            'The name of the title property in the database. Default is "Name".',
+        },
+      },
+      required: ["database_id", "contact_name"],
+    },
+  },
+
   // Utility
   human_approval_request: {
     name: "human_approval_request",

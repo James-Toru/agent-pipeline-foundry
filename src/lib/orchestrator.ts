@@ -3,7 +3,18 @@ import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
 import { getToolsForAgent } from "@/lib/tool-registry";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { MCPClientManager, INTERNAL_TOOLS } from "@/lib/mcp-client-manager";
+import { isGoogleConfigured } from "@/lib/google-auth";
+import { isHubSpotConfigured } from "@/lib/hubspot-auth";
+import { isSlackConfigured, getSlackApprovalChannel } from "@/lib/slack-auth";
+import { slackRequestApproval } from "@/lib/integrations/slack";
+import { isNotionConfigured } from "@/lib/notion-auth";
 import { sendErrorAlert, classifySeverity } from "@/lib/error-alerting";
+import {
+  type PipelineError,
+  AgentFoundryError,
+  PipelineErrors,
+  detectIntegrationFromTools,
+} from "@/lib/pipeline-errors";
 import type {
   PipelineSpec,
   AgentSpec,
@@ -180,6 +191,28 @@ async function updateRunAnalytics(
   await supabase
     .from("pipeline_runs")
     .update({ total_tokens, total_cost_usd, duration_ms })
+    .eq("id", run_id);
+}
+
+// ── Structured Run Failure ───────────────────────────────────────────────────
+
+async function failRun(
+  run_id: string,
+  error: PipelineError
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  await supabase
+    .from("pipeline_runs")
+    .update({
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error_code: error.code,
+      error_message: error.message,
+      error_user_message: error.user_message,
+      error_action: error.action,
+      error_integration: error.integration ?? null,
+      error_details: error.details ?? null,
+    })
     .eq("id", run_id);
 }
 
@@ -420,6 +453,34 @@ function topologicalSort(spec: PipelineSpec): string[][] {
   return layers;
 }
 
+// ── JSON Extraction Helper ──────────────────────────────────────────────────
+
+function extractJson(text: string): Record<string, unknown> | null {
+  // Try direct parse first
+  try {
+    const cleaned = text
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    return JSON.parse(cleaned);
+  } catch {
+    // ignore
+  }
+
+  // Try to find the largest {...} block in the text
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
 // ── Execute Single Agent ─────────────────────────────────────────────────────
 
 async function executeAgent(
@@ -461,21 +522,28 @@ async function executeAgent(
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
+    let toolCallCount = 0;
+
     const agentCall = async () => {
       const messages: MessageParam[] = [
         {
           role: "user",
           content: JSON.stringify({
             task:
-              "Execute your assigned role completely and return a valid JSON object containing all required output fields.",
+              "Execute your assigned role completely. " +
+              "You MUST use the provided tools to perform real operations. " +
+              "Do NOT simulate, describe, or reason about what a tool would return — actually call it. " +
+              "Every page ID, message timestamp, and confirmation you include in your output must come from a real tool call result.",
             pipeline_inputs: ctx.input_data,
             upstream_outputs: Object.fromEntries(ctx.agent_outputs),
             all_available_data: resolvedInputData,
             required_output_fields: agentSpec.outputs,
             critical_instruction:
-              "You MUST return ONLY a valid JSON object. No prose, no markdown, no explanation. " +
-              "Your entire response must be parseable by JSON.parse(). " +
-              "Include every field listed in required_output_fields.",
+              "After completing all tool calls, return a JSON object with all required output fields " +
+              "populated with REAL data from actual tool results — not simulated values. " +
+              "Use the actual IDs, URLs, and responses returned by the tools. " +
+              "If a tool returns an error, include that error in your output — do not invent a success response. " +
+              "Your entire final response must be parseable by JSON.parse().",
           }),
         },
       ];
@@ -495,13 +563,33 @@ async function executeAgent(
 
         let response: Anthropic.Message;
         try {
+          // Force tool use on first call when agent has tools assigned.
+          // Without this, models may hallucinate tool results instead of calling them.
+          const toolChoice =
+            tools.length > 0 && toolCallCount === 0
+              ? { type: "any" as const }
+              : undefined;
+
+          // Enhance system prompt based on whether the agent has tools
+          const systemPromptAddition =
+            tools.length > 0
+              ? "\n\nCRITICAL: You MUST call the provided tools to perform real operations. " +
+                "Never simulate, invent, or describe what a tool would return. " +
+                "If you need data, call the tool. If you need to create something, call the tool. " +
+                "Your final response must contain ONLY a JSON object with real data from tool results."
+              : "\n\nYou do not have any tools available. Produce your output using the information " +
+                "provided in the input data and your own knowledge. " +
+                "Your final response must be a JSON object containing all required output fields. " +
+                "Do not wrap it in markdown code fences.";
+
           response = await client.messages.create({
             model: ANTHROPIC_MODEL,
             max_tokens: agentSpec.guardrails.max_tokens,
             temperature: agentSpec.guardrails.temperature,
-            system: agentSpec.system_prompt,
+            system: agentSpec.system_prompt + systemPromptAddition,
             messages,
             ...(tools.length > 0 ? { tools } : {}),
+            ...(toolChoice ? { tool_choice: toolChoice } : {}),
           });
           rateLimitRetries = 0; // Reset on success
         } catch (apiErr: unknown) {
@@ -536,14 +624,10 @@ async function executeAgent(
             textBlock && textBlock.type === "text" ? textBlock.text : "";
 
           let output: Record<string, unknown>;
-          try {
-            const cleaned = rawOutput
-              .replace(/^```json\s*/i, "")
-              .replace(/^```\s*/i, "")
-              .replace(/```\s*$/i, "")
-              .trim();
-            output = JSON.parse(cleaned);
-          } catch {
+          const parsed = extractJson(rawOutput);
+          if (parsed) {
+            output = parsed;
+          } else {
             console.warn(
               `[Orchestrator] Agent ${agentSpec.agent_id} returned non-JSON. Wrapping in structured output.`
             );
@@ -570,6 +654,12 @@ async function executeAgent(
           const toolInput = (block.input ?? {}) as Record<string, unknown>;
           let resultContent: string;
 
+          toolCallCount++;
+          console.log(
+            `[Orchestrator] Agent ${agentSpec.agent_id} calling tool: ${toolId}`,
+            JSON.stringify(toolInput).substring(0, 300)
+          );
+
           if (INTERNAL_TOOLS.has(toolId)) {
             // Handle internally — bypass MCP
             resultContent = await handleInternalTool(toolId, toolInput, ctx);
@@ -583,11 +673,16 @@ async function executeAgent(
               resultContent = mcpResult.result;
             } else {
               console.warn(
-                `[Orchestrator] MCP fallback used for "${toolId}": ${mcpResult.error}`
+                `[Orchestrator] Tool "${toolId}" failed: ${mcpResult.error}`
               );
               resultContent = mcpResult.fallback;
             }
           }
+
+          console.log(
+            `[Orchestrator] Tool ${toolId} result:`,
+            resultContent.substring(0, 200)
+          );
 
           toolResults.push({
             type: "tool_result" as const,
@@ -614,6 +709,17 @@ async function executeAgent(
     ]);
 
     const output = result as Record<string, unknown>;
+
+    // Verify the agent actually called tools when it had tools assigned
+    if (tools.length > 0 && toolCallCount === 0) {
+      console.error(
+        `[Orchestrator] CRITICAL: Agent ${agentSpec.agent_id} had ${tools.length} tools available but called NONE. Output may be hallucinated.`
+      );
+    } else if (toolCallCount > 0) {
+      console.log(
+        `[Orchestrator] Agent ${agentSpec.agent_id} completed with ${toolCallCount} real tool call(s)`
+      );
+    }
 
     // Build token usage record
     const costUsd = calculateCost(ANTHROPIC_MODEL, totalInputTokens, totalOutputTokens);
@@ -642,18 +748,81 @@ async function executeAgent(
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : "Unknown agent error";
+    const errLower = errorMsg.toLowerCase();
 
+    // Classify the error into a structured PipelineError
+    let pipelineError: PipelineError;
+
+    if (err instanceof AgentFoundryError) {
+      pipelineError = err.pipelineError;
+    } else if (
+      errLower.includes("timed out") ||
+      errLower.includes("timeout")
+    ) {
+      pipelineError = PipelineErrors.agentTimeout(
+        agentSpec.agent_id,
+        agentSpec.role,
+        agentSpec.guardrails.max_runtime_seconds
+      );
+    } else if (
+      errLower.includes("token") ||
+      errLower.includes("auth") ||
+      errLower.includes("credentials") ||
+      errLower.includes("unauthorized") ||
+      errLower.includes("forbidden")
+    ) {
+      const integration = detectIntegrationFromTools(agentSpec.tools);
+      pipelineError = PipelineErrors.integrationAuthFailed(integration, errorMsg);
+    } else if (
+      errLower.includes("rate limit") ||
+      errLower.includes("too many requests") ||
+      errorMsg.includes("429")
+    ) {
+      const integration = detectIntegrationFromTools(agentSpec.tools);
+      pipelineError = PipelineErrors.integrationRateLimited(integration);
+    } else if (
+      errLower.includes("permission") ||
+      errLower.includes("not shared") ||
+      errLower.includes("access denied") ||
+      errLower.includes("restricted")
+    ) {
+      const integration = detectIntegrationFromTools(agentSpec.tools);
+      pipelineError = PipelineErrors.integrationPermissionDenied(
+        integration,
+        agentSpec.role
+      );
+    } else {
+      pipelineError = PipelineErrors.toolExecutionFailed(
+        "unknown",
+        agentSpec.agent_id,
+        errorMsg
+      );
+    }
+
+    // Write structured error to agent_messages
     await updateAgentMessage(messageId, {
       status: "failed",
-      error: errorMsg,
+      error: pipelineError.message,
       completed_at: new Date().toISOString(),
     });
+
+    // Write structured error fields separately (new columns)
+    const supabase = await createSupabaseServerClient();
+    await supabase
+      .from("agent_messages")
+      .update({
+        error_code: pipelineError.code,
+        error_user_message: pipelineError.user_message,
+        error_action: pipelineError.action,
+        error_details: pipelineError.details ?? null,
+      })
+      .eq("id", messageId);
 
     return {
       agent_id: agentSpec.agent_id,
       status: "failed",
       output: null,
-      error: errorMsg,
+      error: pipelineError.message,
     };
   }
 }
@@ -671,6 +840,23 @@ async function handleApprovalGate(
     agentSpec.approval_message ?? `Approval required for ${agentSpec.role}`,
     agentOutput
   );
+
+  // Notify via Slack if configured — humans can approve/reject directly from Slack
+  if (isSlackConfigured()) {
+    const channel = getSlackApprovalChannel();
+    const contextSummary =
+      Object.keys(agentOutput).length > 0
+        ? "```" + JSON.stringify(agentOutput, null, 2).slice(0, 1500) + "```"
+        : "_No output context available._";
+    await slackRequestApproval({
+      channel,
+      approval_id: approvalId,
+      title: agentSpec.approval_message ?? `Approval required for ${agentSpec.role}`,
+      context: `*Run:* ${ctx.run_id}\n*Agent:* ${agentSpec.role}\n\n${contextSummary}`,
+    }).catch((err) =>
+      console.error("[Orchestrator] Slack approval notification failed:", err)
+    );
+  }
 
   const supabase = await createSupabaseServerClient();
   await supabase
@@ -817,6 +1003,46 @@ export async function runPipeline(
 ): Promise<void> {
   // Collect all tool IDs and start needed MCP servers
   const allToolIds = pipeline.agents.flatMap((a) => a.tools);
+
+  // Fail fast if integrations are required but not configured
+  const requiresHubSpot = allToolIds.some((t) => t.startsWith("hubspot_"));
+  if (requiresHubSpot && !isHubSpotConfigured()) {
+    const error = PipelineErrors.integrationNotConfigured("hubspot");
+    await failRun(run_id, error);
+    throw new AgentFoundryError(error);
+  }
+
+  const requiresSlack = allToolIds.some((t) => t.startsWith("slack_"));
+  if (requiresSlack && !isSlackConfigured()) {
+    const error = PipelineErrors.integrationNotConfigured("slack");
+    await failRun(run_id, error);
+    throw new AgentFoundryError(error);
+  }
+
+  const requiresGoogle = allToolIds.some(
+    (t) =>
+      t.startsWith("gmail_") ||
+      t.startsWith("google_calendar_") ||
+      t.startsWith("sheets_")
+  );
+  if (requiresGoogle && !isGoogleConfigured()) {
+    const integration = allToolIds.some((t) => t.startsWith("sheets_"))
+      ? "google_sheets"
+      : allToolIds.some((t) => t.startsWith("gmail_"))
+        ? "gmail"
+        : "google_calendar";
+    const error = PipelineErrors.integrationNotConfigured(integration);
+    await failRun(run_id, error);
+    throw new AgentFoundryError(error);
+  }
+
+  const requiresNotion = allToolIds.some((t) => t.startsWith("notion_"));
+  if (requiresNotion && !isNotionConfigured()) {
+    const error = PipelineErrors.integrationNotConfigured("notion");
+    await failRun(run_id, error);
+    throw new AgentFoundryError(error);
+  }
+
   const mcpManager = new MCPClientManager();
 
   try {
@@ -873,7 +1099,12 @@ export async function runPipeline(
           if (agents[0].on_failure === "halt_pipeline") {
             const durationMs = Date.now() - startTime;
             await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
-            await updateRunStatus(run_id, "failed", new Date().toISOString());
+            const haltError = PipelineErrors.toolExecutionFailed(
+              "unknown",
+              result.agent_id,
+              result.error ?? "Agent failed with halt_pipeline policy"
+            );
+            await failRun(run_id, haltError);
             return;
           }
         }
@@ -903,7 +1134,12 @@ export async function runPipeline(
             if (agents[i].on_failure === "halt_pipeline") {
               const durationMs = Date.now() - startTime;
               await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
-              await updateRunStatus(run_id, "failed", new Date().toISOString());
+              const haltError = PipelineErrors.toolExecutionFailed(
+                "unknown",
+                results[i].agent_id,
+                results[i].error ?? "Agent failed with halt_pipeline policy"
+              );
+              await failRun(run_id, haltError);
               return;
             }
           }
@@ -914,6 +1150,26 @@ export async function runPipeline(
     const durationMs = Date.now() - startTime;
     await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
     await updateRunStatus(run_id, "completed", new Date().toISOString());
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    const pipelineError =
+      err instanceof AgentFoundryError
+        ? err.pipelineError
+        : PipelineErrors.unknownError(errorMsg);
+
+    // Only update if not already failed by failRun()
+    const supabase = await createSupabaseServerClient();
+    const { data: currentRun } = await supabase
+      .from("pipeline_runs")
+      .select("status")
+      .eq("id", run_id)
+      .single();
+
+    if (currentRun?.status !== "failed") {
+      await failRun(run_id, pipelineError);
+    }
+
+    console.error(`[Orchestrator] Pipeline run ${run_id} failed:`, errorMsg);
   } finally {
     // Always shut down MCP servers, even on failure
     await mcpManager.shutdown();

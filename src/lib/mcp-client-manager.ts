@@ -6,10 +6,42 @@ import {
   calendarFindSlot,
 } from "@/lib/integrations/google-calendar";
 import {
+  sheetsReadRows,
+  sheetsWriteRows,
+  sheetsUpdateCells,
+  sheetsCreateSpreadsheet,
+  sheetsSearch,
+  sheetsFormatCells,
+} from "@/lib/integrations/google-sheets";
+import {
   braveWebSearch,
   braveScrapePage,
   braveWebResearch,
 } from "@/lib/integrations/brave-search";
+import {
+  hubspotReadContacts,
+  hubspotWriteContact,
+  hubspotReadCompanies,
+  hubspotWriteCompany,
+  hubspotReadDeals,
+  hubspotWriteDeal,
+  hubspotCreateTask,
+  hubspotCreateNote,
+  hubspotSendEmail,
+  hubspotReadPipelineStages,
+} from "@/lib/integrations/hubspot";
+import { isHubSpotConfigured } from "@/lib/hubspot-auth";
+import {
+  slackSendMessage,
+  slackSendDM,
+  slackPostNotification,
+  slackRequestApproval,
+  slackCreateChannel,
+  slackReadMessages,
+} from "@/lib/integrations/slack";
+import { isSlackConfigured } from "@/lib/slack-auth";
+import * as Notion from "@/lib/integrations/notion";
+import { isNotionConfigured } from "@/lib/notion-auth";
 import type { ToolId } from "@/types/pipeline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -98,6 +130,34 @@ const GOOGLE_TOOL_IDS = new Set<ToolId>([
   "google_calendar_read",
   "google_calendar_write",
   "google_calendar_find_slot",
+  "sheets_read_rows",
+  "sheets_write_rows",
+  "sheets_update_cells",
+  "sheets_create_spreadsheet",
+  "sheets_search",
+  "sheets_format_cells",
+]);
+
+const HUBSPOT_TOOL_IDS = new Set<ToolId>([
+  "hubspot_read_contacts",
+  "hubspot_write_contact",
+  "hubspot_read_companies",
+  "hubspot_write_company",
+  "hubspot_read_deals",
+  "hubspot_write_deal",
+  "hubspot_create_task",
+  "hubspot_create_note",
+  "hubspot_send_email",
+  "hubspot_read_pipeline_stages",
+]);
+
+const SLACK_TOOL_IDS = new Set<ToolId>([
+  "slack_send_message",
+  "slack_send_dm",
+  "slack_post_notification",
+  "slack_request_approval",
+  "slack_create_channel",
+  "slack_read_messages",
 ]);
 
 export class MCPClientManager {
@@ -121,6 +181,39 @@ export class MCPClientManager {
     if (needsBrave && !process.env.BRAVE_API_KEY) {
       console.warn(
         "[Tools] BRAVE_API_KEY not set — web search tools will return errors."
+      );
+    }
+
+    const needsHubSpot = toolIds.some((id) => HUBSPOT_TOOL_IDS.has(id));
+    if (needsHubSpot && !isHubSpotConfigured()) {
+      console.warn(
+        "[Tools] HUBSPOT_ACCESS_TOKEN not set — HubSpot tools will return errors. " +
+          "Add HUBSPOT_ACCESS_TOKEN to .env.local or enter it in Settings."
+      );
+    }
+
+    const needsSlack = toolIds.some((id) => SLACK_TOOL_IDS.has(id));
+    if (needsSlack && !isSlackConfigured()) {
+      console.warn(
+        "[Tools] SLACK_BOT_TOKEN not set — Slack tools will return errors. " +
+          "Add SLACK_BOT_TOKEN to .env.local or enter it in Settings."
+      );
+    }
+
+    const NOTION_TOOL_IDS = [
+      "notion_create_page",
+      "notion_read_pages",
+      "notion_update_page",
+      "notion_append_content",
+      "notion_create_standalone_page",
+      "notion_search",
+      "notion_check_exists",
+    ];
+    const needsNotion = toolIds.some((id) => NOTION_TOOL_IDS.includes(id));
+    if (needsNotion && !isNotionConfigured()) {
+      console.warn(
+        "[Tools] NOTION_API_KEY not configured. Notion tools will return errors. " +
+          "Add NOTION_API_KEY to .env.local or enter it in Settings."
       );
     }
 
@@ -209,6 +302,73 @@ export class MCPClientManager {
           result = await calendarFindSlot(input);
           break;
 
+        // ── Google Sheets ──────────────────────────────────────────────────
+        case "sheets_read_rows":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await sheetsReadRows(input);
+          break;
+
+        case "sheets_write_rows":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await sheetsWriteRows(input);
+          break;
+
+        case "sheets_update_cells":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await sheetsUpdateCells(input);
+          break;
+
+        case "sheets_create_spreadsheet":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await sheetsCreateSpreadsheet(input);
+          break;
+
+        case "sheets_search":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await sheetsSearch(input);
+          break;
+
+        case "sheets_format_cells":
+          if (!isGoogleConfigured()) {
+            return {
+              success: false,
+              error: "Google credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          result = await sheetsFormatCells(input);
+          break;
+
         // ── Brave Search ───────────────────────────────────────────────────
         case "web_search":
           result = await braveWebSearch(input);
@@ -226,6 +386,138 @@ export class MCPClientManager {
         case "json_transform":
           result = await handleJsonTransform(input);
           break;
+
+        // ── HubSpot CRM ────────────────────────────────────────────────────
+        case "hubspot_read_contacts":
+          result = await hubspotReadContacts(input);
+          break;
+
+        case "hubspot_write_contact":
+          result = await hubspotWriteContact(input);
+          break;
+
+        case "hubspot_read_companies":
+          result = await hubspotReadCompanies(input);
+          break;
+
+        case "hubspot_write_company":
+          result = await hubspotWriteCompany(input);
+          break;
+
+        case "hubspot_read_deals":
+          result = await hubspotReadDeals(input);
+          break;
+
+        case "hubspot_write_deal":
+          result = await hubspotWriteDeal(input);
+          break;
+
+        case "hubspot_create_task":
+          result = await hubspotCreateTask(input);
+          break;
+
+        case "hubspot_create_note":
+          result = await hubspotCreateNote(input);
+          break;
+
+        case "hubspot_send_email":
+          result = await hubspotSendEmail(input);
+          break;
+
+        case "hubspot_read_pipeline_stages":
+          result = await hubspotReadPipelineStages(input);
+          break;
+
+        // ── Slack ──────────────────────────────────────────────────────────
+        case "slack_send_message":
+          if (!isSlackConfigured()) {
+            return {
+              success: false,
+              error: "Slack credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          return await slackSendMessage(input as Parameters<typeof slackSendMessage>[0]);
+
+        case "slack_send_dm":
+          if (!isSlackConfigured()) {
+            return {
+              success: false,
+              error: "Slack credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          return await slackSendDM(input as Parameters<typeof slackSendDM>[0]);
+
+        case "slack_post_notification":
+          if (!isSlackConfigured()) {
+            return {
+              success: false,
+              error: "Slack credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          return await slackPostNotification(
+            input as Parameters<typeof slackPostNotification>[0]
+          );
+
+        case "slack_request_approval":
+          if (!isSlackConfigured()) {
+            return {
+              success: false,
+              error: "Slack credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          return await slackRequestApproval(
+            input as Parameters<typeof slackRequestApproval>[0]
+          );
+
+        case "slack_create_channel":
+          if (!isSlackConfigured()) {
+            return {
+              success: false,
+              error: "Slack credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          return await slackCreateChannel(
+            input as Parameters<typeof slackCreateChannel>[0]
+          );
+
+        case "slack_read_messages":
+          if (!isSlackConfigured()) {
+            return {
+              success: false,
+              error: "Slack credentials not configured",
+              fallback: getSimulationFallback(toolId, input),
+            };
+          }
+          return await slackReadMessages(
+            input as Parameters<typeof slackReadMessages>[0]
+          );
+
+        // ── Notion ─────────────────────────────────────────────────────────
+        case "notion_create_page":
+          return Notion.notionCreatePage(input);
+
+        case "notion_read_pages":
+          return Notion.notionReadPages(input);
+
+        case "notion_update_page":
+          return Notion.notionUpdatePage(input);
+
+        case "notion_append_content":
+          return Notion.notionAppendContent(input);
+
+        case "notion_create_standalone_page":
+          return Notion.notionCreateStandalonePage(input);
+
+        case "notion_search":
+          return Notion.notionSearch(input);
+
+        case "notion_check_exists":
+          return Notion.notionCheckPageExists(input);
 
         // ── Not implemented ────────────────────────────────────────────────
         case "outlook_read":
