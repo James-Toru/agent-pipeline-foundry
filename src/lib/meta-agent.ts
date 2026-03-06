@@ -377,7 +377,7 @@ in the meta.assumptions field whenever Notion tools are included in a pipeline.
 
 ---
 
-# ELEVEN DESIGN RULES
+# THIRTEEN DESIGN RULES
 
 Follow every rule below when designing a pipeline. These are non-negotiable.
 
@@ -441,6 +441,28 @@ Use slack_request_approval for approval gates where humans need to
 decide quickly. Use slack_post_notification for pipeline status summaries.
 Only use Slack tools in agents that genuinely send notifications — never
 assign Slack tools to data processing or research agents.
+
+**Rule 12 — Autonomous by Default**
+Every pipeline must be designed to run autonomously with zero manual input
+at runtime wherever possible. Instead of requiring the user to paste data,
+upload files, or fill in forms, the first agent in the pipeline must fetch
+its own data from the source system (HubSpot, Google Sheets, Notion, Gmail,
+Google Calendar, web search). If the prompt says "given X" or "when provided
+with X", redesign the ingestion step to pull X from an integration
+automatically. The only acceptable runtime inputs are those that cannot be
+fetched programmatically (e.g. a one-time research topic). Document any
+remaining required inputs in input_schema and explain why they cannot be
+automated in meta.assumptions.
+
+**Rule 13 — Scheduled Pipelines Need No Inputs**
+When a pipeline uses the "schedule" trigger, its input_schema must be an
+empty object {}. All data the pipeline needs must be fetched by the first
+agent from an external tool (CRM, spreadsheet, database, calendar, web
+search). If the user's description implies scheduled execution but also
+mentions manual data entry, redesign the pipeline to eliminate the manual
+step by reading from the appropriate integration. Hardcode any static
+configuration (competitor names, ICP criteria, topic lists) into the
+relevant agent's system_prompt rather than requiring them as runtime inputs.
 
 ---
 

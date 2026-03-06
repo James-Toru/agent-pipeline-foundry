@@ -42,6 +42,7 @@ export default function PipelineInspectorPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [webhookCopied, setWebhookCopied] = useState(false);
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -288,15 +289,15 @@ export default function PipelineInspectorPage() {
             </span>
           </div>
           {pipeline.spec.triggers.includes("webhook") && (
-            <div className="rounded-xl ring-1 ring-white/6 bg-zinc-900/60 px-4 py-3 space-y-2">
+            <div className="rounded-xl ring-1 ring-white/6 bg-zinc-900/60 px-4 py-3 space-y-3">
               <div className="flex items-center gap-2">
-                <Webhook className="size-4 text-zinc-500 shrink-0" />
+                <Webhook className="size-4 text-emerald-400 shrink-0" />
                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                   Webhook URL
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-lg bg-zinc-800/60 px-2 py-1 text-xs text-zinc-300 font-mono">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-zinc-800/60 px-2 py-1 text-xs text-emerald-300 font-mono select-all">
                   {typeof window !== "undefined"
                     ? `${window.location.origin}/api/webhooks/${pipelineId}`
                     : `/api/webhooks/${pipelineId}`}
@@ -305,13 +306,42 @@ export default function PipelineInspectorPage() {
                   onClick={() => {
                     const url = `${window.location.origin}/api/webhooks/${pipelineId}`;
                     navigator.clipboard.writeText(url);
+                    setWebhookCopied(true);
+                    setTimeout(() => setWebhookCopied(false), 2000);
                   }}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-xs text-zinc-400 transition-colors"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-xs text-zinc-400 hover:text-white transition-colors"
                 >
                   <Copy className="size-3" />
-                  Copy
+                  {webhookCopied ? "Copied!" : "Copy"}
                 </button>
               </div>
+
+              {/* Integration instructions */}
+              <details className="group">
+                <summary className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 cursor-pointer transition-colors list-none">
+                  <svg className="size-3 chevron-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  How to connect your external system
+                </summary>
+                <div className="mt-2 space-y-2 text-xs text-zinc-500 bg-zinc-800/40 rounded-lg p-3">
+                  <p className="font-medium text-zinc-400">
+                    Configure your system to send a POST request to this URL with a JSON body:
+                  </p>
+                  <code className="block bg-zinc-950/60 rounded-lg p-2.5 text-emerald-400/80 text-[11px] font-mono whitespace-pre">
+{`POST ${typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/${pipelineId}` : `/api/webhooks/${pipelineId}`}
+Content-Type: application/json
+
+{
+  "field1": "value",
+  "field2": "value"
+}`}
+                  </code>
+                  <p>
+                    The pipeline will execute automatically each time it receives a valid payload.
+                  </p>
+                </div>
+              </details>
             </div>
           )}
           <MetaBlock meta={pipeline.spec.meta} />

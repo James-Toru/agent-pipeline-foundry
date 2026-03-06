@@ -16,6 +16,9 @@ import {
   AlertTriangle,
   Info,
   Wrench,
+  Clock,
+  Zap,
+  Play,
 } from "lucide-react";
 import {
   DEPARTMENTS,
@@ -296,6 +299,25 @@ function PipelinePreview({
                 Pipeline details
               </h4>
               <div className="space-y-2 text-sm text-zinc-400">
+                <div className="flex items-center gap-2">
+                  {problem.trigger_type === "scheduled" ? (
+                    <Clock className="size-3.5 text-blue-400" />
+                  ) : problem.trigger_type === "event" ? (
+                    <Zap className="size-3.5 text-amber-400" />
+                  ) : (
+                    <Play className="size-3.5 text-emerald-400" />
+                  )}
+                  <span>
+                    {problem.trigger_type === "scheduled"
+                      ? "Scheduled"
+                      : problem.trigger_type === "event"
+                        ? "Event-driven"
+                        : "Manual trigger"}
+                  </span>
+                </div>
+                <p className="pl-5.5 text-xs text-zinc-500">
+                  {problem.trigger_description}
+                </p>
                 <div className="flex items-center gap-2">
                   <Bot className="size-3.5 text-zinc-600" />
                   {problem.agents_preview.length} agents

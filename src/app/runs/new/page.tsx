@@ -15,6 +15,8 @@ import {
   Bot,
   Zap,
   Lock,
+  Copy,
+  ChevronDown,
 } from "lucide-react";
 import type { PipelineRecord, DataField } from "@/types/pipeline";
 
@@ -33,6 +35,7 @@ function NewRunForm() {
     settings_url: string | null;
   } | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
+  const [testPayload, setTestPayload] = useState("");
 
   useEffect(() => {
     if (!pipelineId) {
@@ -81,30 +84,55 @@ function NewRunForm() {
     }
   }
 
+  const isWebhookPipeline = pipeline?.spec.triggers.includes("webhook") ?? false;
+
   async function handleStart() {
     if (!pipeline || !pipelineId) return;
-
-    const schema = pipeline.spec.input_schema;
-    for (const [key, field] of Object.entries(schema)) {
-      if (field.required && !formData[key]?.trim()) {
-        setError({
-          message: `"${key}" is required.`,
-          action: "Fill in all required fields before starting the run.",
-          integration: null,
-          settings_url: null,
-        });
-        return;
-      }
-    }
 
     setIsStarting(true);
     setError(null);
 
     try {
-      const input_data: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(formData)) {
-        if (schema[key]) {
-          input_data[key] = coerceValue(value, schema[key]);
+      let input_data: Record<string, unknown>;
+
+      if (isWebhookPipeline) {
+        // For webhook pipelines, use the test payload if provided
+        if (testPayload.trim()) {
+          try {
+            input_data = JSON.parse(testPayload);
+          } catch {
+            setError({
+              message: "Invalid JSON in test payload.",
+              action: "Check your JSON syntax and try again.",
+              integration: null,
+              settings_url: null,
+            });
+            setIsStarting(false);
+            return;
+          }
+        } else {
+          input_data = { _test: true, _source: "manual_test" };
+        }
+      } else {
+        const schema = pipeline.spec.input_schema;
+        for (const [key, field] of Object.entries(schema)) {
+          if (field.required && !formData[key]?.trim()) {
+            setError({
+              message: `"${key}" is required.`,
+              action: "Fill in all required fields before starting the run.",
+              integration: null,
+              settings_url: null,
+            });
+            setIsStarting(false);
+            return;
+          }
+        }
+
+        input_data = {};
+        for (const [key, value] of Object.entries(formData)) {
+          if (schema[key]) {
+            input_data[key] = coerceValue(value, schema[key]);
+          }
         }
       }
 
@@ -169,6 +197,9 @@ function NewRunForm() {
   }
 
   const inputFields = Object.entries(pipeline.spec.input_schema);
+  const webhookUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/api/webhooks/${pipelineId}`
+    : `/api/webhooks/${pipelineId}`;
 
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
@@ -190,7 +221,65 @@ function NewRunForm() {
 
         <Card className="p-6">
           <div className="space-y-5">
-            {inputFields.length === 0 ? (
+            {isWebhookPipeline ? (
+              /* WEBHOOK PIPELINE — no manual input form */
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 rounded-xl ring-1 ring-emerald-500/20 bg-emerald-500/8 px-4 py-3">
+                  <Zap className="size-5 text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-emerald-300">
+                      This pipeline is triggered by webhook
+                    </p>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Data is received automatically from your external system. No manual input needed.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Webhook URL */}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                    Webhook URL
+                  </label>
+                  <div className="flex gap-2">
+                    <code className="flex-1 min-w-0 truncate rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2.5 text-sm text-emerald-300 font-mono">
+                      {webhookUrl}
+                    </code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(webhookUrl)}
+                      className="flex shrink-0 items-center gap-1.5 rounded-xl ring-1 ring-white/8 bg-zinc-800 hover:bg-zinc-700 px-3 py-2.5 text-sm text-zinc-400 hover:text-white transition-colors"
+                    >
+                      <Copy className="size-3.5" />
+                      Copy
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-xs text-zinc-500">
+                  Configure your external system to POST data to this URL. The pipeline will execute automatically each time it receives a payload.
+                </p>
+
+                {/* Test payload section */}
+                <details className="group">
+                  <summary className="flex items-center gap-1.5 text-sm text-zinc-600 hover:text-zinc-400 cursor-pointer transition-colors list-none">
+                    <ChevronDown className="size-3.5 chevron-icon" />
+                    Test with sample payload (development)
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-zinc-500">
+                      Paste a sample webhook payload to test the pipeline without waiting for your external system.
+                    </p>
+                    <textarea
+                      value={testPayload}
+                      onChange={(e) => setTestPayload(e.target.value)}
+                      placeholder={`{\n  "subject": "Cannot login to account",\n  "description": "Getting error on login page",\n  "customer_email": "john@acme.com",\n  "priority": "High"\n}`}
+                      rows={6}
+                      className="w-full rounded-xl ring-1 ring-white/8 bg-zinc-800/80 px-3 py-2.5 text-sm text-zinc-300 font-mono outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all duration-200 border-0 resize-none"
+                    />
+                  </div>
+                </details>
+              </div>
+            ) : inputFields.length === 0 ? (
               <div className="rounded-xl ring-1 ring-white/6 bg-zinc-800/50 px-5 py-6 text-center">
                 <p className="text-sm text-zinc-400">
                   This pipeline has no input fields. Click below to start the run.
@@ -315,7 +404,7 @@ function NewRunForm() {
               ) : (
                 <>
                   <Play className="size-4" />
-                  Start Pipeline Run
+                  {isWebhookPipeline ? "Start Test Run" : "Start Pipeline Run"}
                 </>
               )}
             </button>
