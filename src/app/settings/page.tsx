@@ -22,8 +22,14 @@ import {
   AlertCircle,
   Zap,
   Info,
+  Users,
+  Plus,
+  Trash2,
+  Shield,
+  User,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -351,6 +357,197 @@ function IntegrationCard({
   );
 }
 
+// ── Team Management ──────────────────────────────────────────────────────────
+
+interface TeamMember {
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  created_at: string;
+}
+
+function TeamManagement() {
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+  const [inviting, setInviting] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      const supabase = createSupabaseBrowserClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setCurrentUserId(user.id);
+
+      const res = await fetch("/api/team");
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data);
+        setIsAdmin(true);
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault();
+    setInviting(true);
+    setMessage(null);
+
+    const res = await fetch("/api/team", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: inviteEmail, password: invitePassword, role: inviteRole }),
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      setMembers((prev) => [...prev, { ...data, created_at: new Date().toISOString() }]);
+      setInviteEmail("");
+      setInvitePassword("");
+      setInviteRole("member");
+      setMessage({ type: "success", text: `Invited ${data.email}` });
+    } else {
+      setMessage({ type: "error", text: data.error });
+    }
+    setInviting(false);
+  }
+
+  async function handleRemove(userId: string, email: string) {
+    if (!confirm(`Remove ${email} from the team?`)) return;
+
+    const res = await fetch("/api/team", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+
+    if (res.ok) {
+      setMembers((prev) => prev.filter((m) => m.id !== userId));
+      setMessage({ type: "success", text: `Removed ${email}` });
+    } else {
+      const data = await res.json();
+      setMessage({ type: "error", text: data.error });
+    }
+  }
+
+  if (loading) return <SkeletonCard className="h-32" />;
+  if (!isAdmin) return null;
+
+  return (
+    <div className="mt-10">
+      <PageHeader
+        icon={<Users className="size-4" />}
+        title="Team Members"
+        description="Manage who has access to Agent Foundry."
+      />
+
+      <Card className="divide-y divide-white/6">
+        {/* Member list */}
+        <div className="px-5 py-4 space-y-3">
+          {members.map((m) => (
+            <div key={m.id} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 ring-1 ring-white/10 text-xs font-semibold text-zinc-300">
+                  {m.email.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm text-white">{m.email}</p>
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                    {m.role === "admin" ? (
+                      <Shield className="size-3 text-amber-400" />
+                    ) : (
+                      <User className="size-3" />
+                    )}
+                    {m.role}
+                    {m.id === currentUserId && (
+                      <span className="text-zinc-600">(you)</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {m.id !== currentUserId && (
+                <button
+                  onClick={() => handleRemove(m.id, m.email)}
+                  className="rounded-lg p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Invite form */}
+        <form onSubmit={handleInvite} className="px-5 py-4 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Invite new member
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <input
+              type="email"
+              placeholder="Email address"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              required
+              className="rounded-lg bg-zinc-800/80 px-3 py-2 text-sm text-white ring-1 ring-white/8 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all border-0"
+            />
+            <input
+              type="password"
+              placeholder="Temporary password"
+              value={invitePassword}
+              onChange={(e) => setInvitePassword(e.target.value)}
+              required
+              className="rounded-lg bg-zinc-800/80 px-3 py-2 text-sm text-white ring-1 ring-white/8 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all border-0"
+            />
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as "admin" | "member")}
+              className="rounded-lg bg-zinc-800/80 px-3 py-2 text-sm text-white ring-1 ring-white/8 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all border-0"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          {message && (
+            <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ring-1 ${
+              message.type === "success"
+                ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : "ring-red-500/20 bg-red-500/10 text-red-400"
+            }`}>
+              {message.type === "success" ? (
+                <CheckCircle2 className="size-3 shrink-0" />
+              ) : (
+                <AlertCircle className="size-3 shrink-0" />
+              )}
+              {message.text}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={inviting}
+            className="flex items-center gap-1.5 rounded-xl bg-linear-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all duration-200 disabled:opacity-40"
+          >
+            {inviting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Plus className="size-3.5" />
+            )}
+            {inviting ? "Inviting..." : "Invite"}
+          </button>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -407,6 +604,8 @@ export default function SettingsPage() {
             />
           ))}
         </div>
+
+        <TeamManagement />
       </div>
     </div>
   );

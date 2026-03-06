@@ -200,7 +200,7 @@ function PipelinePreview({
               <div key={i} className="relative flex gap-3">
                 {/* Connector line */}
                 {i < problem.agents_preview.length - 1 && (
-                  <div className="absolute left-[15px] top-[38px] bottom-0 w-px bg-zinc-800" />
+                  <div className="absolute left-3.75 top-9.5 bottom-0 w-px bg-zinc-800" />
                 )}
 
                 {/* Number badge */}

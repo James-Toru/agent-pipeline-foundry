@@ -12,6 +12,7 @@ import {
   BarChart2,
   Settings2,
 } from "lucide-react";
+import UserMenu from "@/components/UserMenu";
 
 const NAV_LINKS = [
   { href: "/discover", label: "Discover", icon: Compass, exact: false },
@@ -25,6 +26,9 @@ const NAV_LINKS = [
 
 export default function NavBar() {
   const pathname = usePathname();
+
+  // Hide NavBar on login page
+  if (pathname === "/login") return null;
 
   function isActive(href: string, exact: boolean) {
     return exact ? pathname === href : pathname.startsWith(href);
@@ -60,6 +64,9 @@ export default function NavBar() {
             </Link>
           );
         })}
+        <div className="ml-2 border-l border-white/6 pl-2">
+          <UserMenu />
+        </div>
       </div>
     </nav>
   );
