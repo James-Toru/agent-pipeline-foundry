@@ -180,46 +180,46 @@ export default function PipelineInspectorPage() {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-white/6 bg-zinc-950/80 backdrop-blur-sm px-6 py-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 border-b border-white/6 bg-zinc-950/80 backdrop-blur-sm px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/pipelines"
-            className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
+            className="flex shrink-0 items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors"
           >
             <ChevronLeft className="size-4" />
-            Pipelines
+            <span className="hidden sm:inline">Pipelines</span>
           </Link>
-          <span className="text-zinc-800">/</span>
+          <span className="text-zinc-800 hidden sm:inline">/</span>
           <input
             type="text"
             value={pipeline.spec.name}
             onChange={(e) => handleNameChange(e.target.value)}
-            className="bg-transparent text-base font-semibold text-white outline-none border-b border-transparent focus:border-zinc-600 transition-colors"
+            className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none border-b border-transparent focus:border-zinc-600 transition-colors"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto">
           <button
             onClick={handleDuplicate}
             disabled={isDuplicating}
-            className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 ring-1 ring-white/8 px-3 py-1.5 text-sm text-zinc-300 transition-all duration-200 disabled:opacity-40"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 ring-1 ring-white/8 px-3 py-1.5 text-sm text-zinc-300 transition-all duration-200 disabled:opacity-40"
           >
             <Copy className="size-3.5" />
-            {isDuplicating ? "Duplicating..." : "Duplicate"}
+            <span className="hidden sm:inline">{isDuplicating ? "Duplicating..." : "Duplicate"}</span>
           </button>
           <Link
             href={`/runs/new?pipeline=${pipelineId}`}
-            className="flex items-center gap-1.5 rounded-lg bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-emerald-500/20 transition-all duration-200"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-linear-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-emerald-500/20 transition-all duration-200"
           >
             <Play className="size-3.5" />
-            Run Pipeline
+            <span className="hidden sm:inline">Run Pipeline</span>
           </Link>
-          <div className="ml-1 h-5 w-px bg-white/10" />
+          <div className="ml-1 h-5 w-px bg-white/10 shrink-0" />
           <button
             onClick={() => setShowDeleteDialog(true)}
-            className="flex items-center gap-1.5 rounded-lg ring-1 ring-red-500/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10 hover:ring-red-500/50 transition-all duration-200"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg ring-1 ring-red-500/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10 hover:ring-red-500/50 transition-all duration-200"
           >
             <Trash2 className="size-3.5" />
-            Delete
+            <span className="hidden sm:inline">Delete</span>
           </button>
         </div>
       </div>
@@ -265,7 +265,7 @@ export default function PipelineInspectorPage() {
       </div>
 
       {/* Pipeline info + MetaBlock */}
-      <div className="border-t border-white/6 px-6 py-6 bg-zinc-950/50">
+      <div className="border-t border-white/6 px-4 py-6 sm:px-6 bg-zinc-950/50">
         <div className="mx-auto max-w-5xl space-y-6">
           <div className="flex flex-wrap gap-4 text-xs text-zinc-500">
             <span className="flex items-center gap-1.5">
@@ -288,26 +288,30 @@ export default function PipelineInspectorPage() {
             </span>
           </div>
           {pipeline.spec.triggers.includes("webhook") && (
-            <div className="flex items-center gap-3 rounded-xl ring-1 ring-white/6 bg-zinc-900/60 px-4 py-3">
-              <Webhook className="size-4 text-zinc-500 shrink-0" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Webhook URL
-              </span>
-              <code className="flex-1 rounded-lg bg-zinc-800/60 px-2 py-1 text-xs text-zinc-300 font-mono">
-                {typeof window !== "undefined"
-                  ? `${window.location.origin}/api/webhooks/${pipelineId}`
-                  : `/api/webhooks/${pipelineId}`}
-              </code>
-              <button
-                onClick={() => {
-                  const url = `${window.location.origin}/api/webhooks/${pipelineId}`;
-                  navigator.clipboard.writeText(url);
-                }}
-                className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-xs text-zinc-400 transition-colors"
-              >
-                <Copy className="size-3" />
-                Copy
-              </button>
+            <div className="rounded-xl ring-1 ring-white/6 bg-zinc-900/60 px-4 py-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Webhook className="size-4 text-zinc-500 shrink-0" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Webhook URL
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-zinc-800/60 px-2 py-1 text-xs text-zinc-300 font-mono">
+                  {typeof window !== "undefined"
+                    ? `${window.location.origin}/api/webhooks/${pipelineId}`
+                    : `/api/webhooks/${pipelineId}`}
+                </code>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/api/webhooks/${pipelineId}`;
+                    navigator.clipboard.writeText(url);
+                  }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-xs text-zinc-400 transition-colors"
+                >
+                  <Copy className="size-3" />
+                  Copy
+                </button>
+              </div>
             </div>
           )}
           <MetaBlock meta={pipeline.spec.meta} />
@@ -324,7 +328,7 @@ export default function PipelineInspectorPage() {
 
       {/* Unsaved changes bar */}
       {hasUnsavedChanges && (
-        <div className="sticky bottom-0 flex items-center justify-between border-t border-amber-500/20 bg-amber-500/5 backdrop-blur-xl px-6 py-3">
+        <div className="sticky bottom-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-t border-amber-500/20 bg-amber-500/5 backdrop-blur-xl px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2 text-sm text-amber-400">
             <AlertCircle className="size-4" />
             Unsaved changes

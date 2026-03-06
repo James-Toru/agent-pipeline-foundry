@@ -320,8 +320,8 @@ export default function AnalyticsPage() {
             </select>
           </div>
 
-          <div className="overflow-hidden rounded-xl ring-1 ring-white/6">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto rounded-xl ring-1 ring-white/6">
+            <table className="w-full min-w-160 text-left text-sm">
               <thead className="border-b border-white/6 bg-zinc-900/60 backdrop-blur-sm">
                 <tr>
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">Pipeline</th>
