@@ -236,6 +236,9 @@ function IntegrationCard({
               </>
             )}
           </span>
+          <span className="text-[10px] text-zinc-600">
+            {configured ? "via Settings" : ""}
+          </span>
           {isOpen ? (
             <ChevronUp className="size-4 text-zinc-600" />
           ) : (

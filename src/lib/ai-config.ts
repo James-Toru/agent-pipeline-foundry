@@ -19,7 +19,7 @@ export function createAnthropicClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === "your_anthropic_api_key_here") {
     throw new Error(
-      "ANTHROPIC_API_KEY is not set. Add a valid Anthropic API key to your .env.local file."
+      "ANTHROPIC_API_KEY is not set. Add it in Settings → Integrations or set it as an environment variable."
     );
   }
   return new Anthropic({ apiKey });

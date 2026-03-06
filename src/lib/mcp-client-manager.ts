@@ -171,7 +171,7 @@ export class MCPClientManager {
     if (needsGoogle && !isGoogleConfigured()) {
       console.warn(
         "[Tools] Google credentials not fully configured — Gmail/Calendar tools will return errors. " +
-          "Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in .env.local."
+          "Configure Google credentials in Settings → Integrations."
       );
     }
 
@@ -188,7 +188,7 @@ export class MCPClientManager {
     if (needsHubSpot && !isHubSpotConfigured()) {
       console.warn(
         "[Tools] HUBSPOT_ACCESS_TOKEN not set — HubSpot tools will return errors. " +
-          "Add HUBSPOT_ACCESS_TOKEN to .env.local or enter it in Settings."
+          "Configure HubSpot credentials in Settings → Integrations."
       );
     }
 
@@ -196,7 +196,7 @@ export class MCPClientManager {
     if (needsSlack && !isSlackConfigured()) {
       console.warn(
         "[Tools] SLACK_BOT_TOKEN not set — Slack tools will return errors. " +
-          "Add SLACK_BOT_TOKEN to .env.local or enter it in Settings."
+          "Configure Slack credentials in Settings → Integrations."
       );
     }
 
@@ -213,7 +213,7 @@ export class MCPClientManager {
     if (needsNotion && !isNotionConfigured()) {
       console.warn(
         "[Tools] NOTION_API_KEY not configured. Notion tools will return errors. " +
-          "Add NOTION_API_KEY to .env.local or enter it in Settings."
+          "Configure Notion credentials in Settings → Integrations."
       );
     }
 

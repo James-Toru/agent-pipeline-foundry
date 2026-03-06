@@ -1,34 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
 import { isHubSpotConfigured } from "@/lib/hubspot-auth";
 import { isSlackConfigured } from "@/lib/slack-auth";
 import { isNotionConfigured } from "@/lib/notion-auth";
+import { isGoogleConfigured } from "@/lib/google-auth";
+import { saveSettings, CREDENTIAL_MAP } from "@/lib/settings-manager";
 
-// In production, credentials should be stored in a secrets manager
-// (e.g. AWS Secrets Manager, HashiCorp Vault), not .env.local.
-// This implementation is suitable for internal tooling only.
-
-const ENV_FILE_PATH = path.join(process.cwd(), ".env.local");
-
-const INTEGRATION_KEYS: Record<string, string[]> = {
-  gmail: ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN"],
-  google_calendar: [
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-    "GOOGLE_REFRESH_TOKEN",
-  ],
-  brave_search: ["BRAVE_API_KEY"],
-  hubspot: ["HUBSPOT_ACCESS_TOKEN", "HUBSPOT_PORTAL_ID"],
-  slack: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_APPROVAL_CHANNEL"],
-  notion: ["NOTION_API_KEY"],
-};
-
-function isConfigured(keys: string[]): boolean {
-  return keys.every((key) => {
-    const value = process.env[key];
-    return value !== undefined && value !== "" && value !== null;
-  });
+// Reverse map: ENV_VAR_NAME → supabase setting key
+const ENV_TO_SETTING: Record<string, string> = {};
+for (const [settingKey, envKey] of Object.entries(CREDENTIAL_MAP)) {
+  ENV_TO_SETTING[envKey] = settingKey;
 }
 
 /**
@@ -38,29 +18,22 @@ function isConfigured(keys: string[]): boolean {
 export async function GET() {
   return NextResponse.json(
     {
-      gmail: { configured: isConfigured(INTEGRATION_KEYS.gmail) },
-      google_calendar: {
-        configured: isConfigured(INTEGRATION_KEYS.google_calendar),
-      },
+      gmail: { configured: isGoogleConfigured() },
+      google_calendar: { configured: isGoogleConfigured() },
       brave_search: {
-        configured: isConfigured(INTEGRATION_KEYS.brave_search),
+        configured: !!(process.env.BRAVE_API_KEY?.trim()),
       },
-      hubspot: {
-        configured: isHubSpotConfigured(),
-      },
-      slack: {
-        configured: isSlackConfigured(),
-      },
-      notion: {
-        configured: isNotionConfigured(),
-      },
+      hubspot: { configured: isHubSpotConfigured() },
+      slack: { configured: isSlackConfigured() },
+      notion: { configured: isNotionConfigured() },
     },
     { status: 200 }
   );
 }
 
 /**
- * POST — Updates credentials in .env.local for a given integration.
+ * POST — Saves credentials to Supabase app_settings table
+ * and updates process.env immediately.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -74,54 +47,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const validIntegrations = Object.keys(INTEGRATION_KEYS);
-    if (!validIntegrations.includes(integration)) {
-      return NextResponse.json(
-        {
-          error: `Invalid integration. Must be one of: ${validIntegrations.join(", ")}`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const allowedKeys = INTEGRATION_KEYS[integration];
-    const updates: Record<string, string> = {};
-    for (const key of allowedKeys) {
-      if (key in credentials && credentials[key] !== "") {
-        updates[key] = credentials[key];
+    // Convert env-var-keyed credentials to setting keys
+    const settings: Record<string, string> = {};
+    for (const [envKey, value] of Object.entries(credentials)) {
+      if (typeof value !== "string" || value === "") continue;
+      const settingKey = ENV_TO_SETTING[envKey];
+      if (settingKey) {
+        settings[settingKey] = value;
       }
     }
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(settings).length === 0) {
       return NextResponse.json(
         { error: "No valid credential keys provided." },
         { status: 400 }
       );
     }
 
-    // Read current .env.local
-    let envContent = "";
-    try {
-      envContent = await fs.readFile(ENV_FILE_PATH, "utf-8");
-    } catch {
-      // File doesn't exist yet — will be created
-    }
-
-    // Update or append each key
-    for (const [key, value] of Object.entries(updates)) {
-      const regex = new RegExp(`^${key}=.*$`, "m");
-      if (regex.test(envContent)) {
-        envContent = envContent.replace(regex, `${key}=${value}`);
-      } else {
-        envContent = envContent.trimEnd() + `\n${key}=${value}`;
-      }
-    }
-
-    await fs.writeFile(ENV_FILE_PATH, envContent.trim() + "\n", "utf-8");
+    await saveSettings(settings);
 
     return NextResponse.json(
       {
-        message: `Credentials for ${integration} updated. Restart the dev server to apply changes.`,
+        message: `Credentials for ${integration} updated successfully.`,
       },
       { status: 200 }
     );
