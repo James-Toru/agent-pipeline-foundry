@@ -8,6 +8,13 @@ import { isHubSpotConfigured } from "@/lib/hubspot-auth";
 import { isSlackConfigured, getSlackApprovalChannel } from "@/lib/slack-auth";
 import { slackRequestApproval } from "@/lib/integrations/slack";
 import { isNotionConfigured } from "@/lib/notion-auth";
+import {
+  getCustomTools,
+  getCustomToolByName,
+  executeCustomTool,
+  customToolToAnthropicFormat,
+} from "@/lib/custom-tool-executor";
+import type { CustomTool, CustomIntegration } from "@/types/pipeline";
 import { sendErrorAlert, classifySeverity } from "@/lib/error-alerting";
 import {
   type PipelineError,
@@ -49,6 +56,7 @@ interface RunContext {
   input_data: Record<string, unknown>;
   agent_outputs: Map<string, Record<string, unknown>>;
   mcpManager: MCPClientManager;
+  customTools: (CustomTool & { integration: CustomIntegration })[];
 }
 
 // ── Token Cost Calculation ──────────────────────────────────────────────────
@@ -515,7 +523,22 @@ async function executeAgent(
 
   try {
     const client = createAnthropicClient();
-    const tools = getToolsForAgent(agentSpec.tools);
+    const builtInToolIds = agentSpec.tools.filter(
+      (t): t is ToolId => !t.startsWith("custom_")
+    );
+    const builtInTools = getToolsForAgent(builtInToolIds);
+
+    // Add custom tools assigned to this agent (prefixed with "custom_")
+    const agentCustomTools = ctx.customTools.filter((ct) =>
+      agentSpec.tools.includes(`custom_${ct.name}`)
+    );
+    const customToolDefs = agentCustomTools.map((ct) =>
+      customToolToAnthropicFormat(ct)
+    );
+    const tools = [
+      ...builtInTools,
+      ...customToolDefs,
+    ] as Anthropic.Tool[];
 
     const timeoutMs = agentSpec.guardrails.max_runtime_seconds * 1000;
 
@@ -663,6 +686,22 @@ async function executeAgent(
           if (INTERNAL_TOOLS.has(toolId)) {
             // Handle internally — bypass MCP
             resultContent = await handleInternalTool(toolId, toolInput, ctx);
+          } else if (toolId.startsWith("custom_")) {
+            // Execute custom API tool
+            const customTool = await getCustomToolByName(toolId);
+            if (customTool) {
+              const customResult = await executeCustomTool(customTool, toolInput);
+              resultContent = customResult.result;
+              if (!customResult.success) {
+                console.warn(
+                  `[Orchestrator] Custom tool "${toolId}" failed: ${customResult.error}`
+                );
+              }
+            } else {
+              resultContent = JSON.stringify({
+                error: `Custom tool "${toolId}" not found`,
+              });
+            }
           } else {
             // Execute via MCP client manager
             const mcpResult = await ctx.mcpManager.executeTool(
@@ -1045,10 +1084,22 @@ export async function runPipeline(
 
   const mcpManager = new MCPClientManager();
 
+  // Filter out custom tools — MCP only handles built-in tools
+  const builtInToolIds = allToolIds.filter(
+    (t): t is ToolId => !t.startsWith("custom_")
+  );
+
   try {
-    await mcpManager.startServersForRun(allToolIds);
+    await mcpManager.startServersForRun(builtInToolIds);
   } catch (err) {
     console.error("[Orchestrator] MCP startup error (continuing with fallbacks):", err);
+  }
+
+  // Load custom tools for this run
+  let customTools: (CustomTool & { integration: CustomIntegration })[] = [];
+  const hasCustomTools = allToolIds.some((t) => t.startsWith("custom_"));
+  if (hasCustomTools) {
+    customTools = await getCustomTools();
   }
 
   const ctx: RunContext = {
@@ -1057,6 +1108,7 @@ export async function runPipeline(
     input_data,
     agent_outputs: new Map(),
     mcpManager,
+    customTools,
   };
 
   const startTime = Date.now();

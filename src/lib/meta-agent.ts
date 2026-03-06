@@ -1,6 +1,7 @@
 import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
 import { validatePipelineSpec } from "@/lib/pipeline-validator";
-import type { PipelineSpec } from "@/types/pipeline";
+import { getCustomTools } from "@/lib/custom-tool-executor";
+import type { PipelineSpec, CustomTool, CustomIntegration } from "@/types/pipeline";
 
 // ── Part A — Pipeline Architect System Prompt ────────────────────────────────
 
@@ -571,6 +572,54 @@ The structure is:
   }
 }
 
+## SCHEDULE FORMAT RULE
+
+The "schedule" field MUST be a plain string or null. NEVER an object. NEVER nested.
+
+Valid examples:
+  "schedule": "every 30 minutes"
+  "schedule": "every hour"
+  "schedule": "every day at 8am"
+  "schedule": "every monday at 7am"
+  "schedule": "every weekday at 9am"
+  "schedule": "0 */2 * * *"
+  "schedule": null
+
+WRONG (will cause validation failure):
+  "schedule": { "interval": 30, "unit": "minutes" }
+  "schedule": { "every": "30 minutes" }
+  "schedule": { "frequency": "hourly" }
+
+## ERROR HANDLING RULE
+
+The "error_handling" object has strict enum values. Use ONLY these exact strings:
+
+"global_fallback" — must be one of:
+  "halt_pipeline"
+  "notify_human"
+  "skip_failed_agent"
+
+"retry_policy" — must be one of:
+  "none"
+  "linear"
+  "exponential"
+
+WRONG (will cause validation failure):
+  "global_fallback": "stop"
+  "global_fallback": "notify_and_halt"
+  "global_fallback": "alert_human"
+  "retry_policy": "fixed"
+  "retry_policy": "backoff"
+
+## TRIGGER VALUES RULE
+
+The "triggers" array must contain ONLY these exact strings:
+  "manual"
+  "webhook"
+  "schedule"
+
+WRONG: "triggers": ["api"], "triggers": ["cron"], "triggers": ["http"]
+
 ## Temperature Guidelines Per Agent Type
 
 - Validation, Scoring, Classification, Compliance agents: 0.1
@@ -617,6 +666,43 @@ export type MetaAgentResult =
 
 /** Callback type for streaming progress updates. */
 export type ProgressCallback = (step: string, percent: number) => void;
+
+const GLOBAL_FALLBACK_VALUES = new Set([
+  "halt_pipeline",
+  "notify_human",
+  "skip_failed_agent",
+]);
+
+function normalizeGlobalFallback(value: string): string {
+  if (GLOBAL_FALLBACK_VALUES.has(value)) return value;
+  const v = value.toLowerCase();
+  if (v.includes("halt") || v.includes("stop") || v.includes("abort")) return "halt_pipeline";
+  if (v.includes("notify") || v.includes("human") || v.includes("alert")) return "notify_human";
+  if (v.includes("skip") || v.includes("continue") || v.includes("ignore")) return "skip_failed_agent";
+  return "notify_human";
+}
+
+const RETRY_POLICY_VALUES = new Set(["none", "linear", "exponential"]);
+
+function normalizeRetryPolicy(value: string): string {
+  if (RETRY_POLICY_VALUES.has(value)) return value;
+  const v = value.toLowerCase();
+  if (v.includes("none") || v.includes("no") || v === "disabled" || v === "off") return "none";
+  if (v.includes("linear") || v.includes("fixed") || v.includes("constant")) return "linear";
+  if (v.includes("exponential") || v.includes("backoff") || v.includes("exp")) return "exponential";
+  return "none";
+}
+
+const TRIGGER_VALUES = new Set(["manual", "webhook", "schedule"]);
+
+function normalizeTrigger(value: string): string {
+  if (TRIGGER_VALUES.has(value)) return value;
+  const v = value.toLowerCase();
+  if (v.includes("manual") || v.includes("user") || v.includes("button")) return "manual";
+  if (v.includes("webhook") || v.includes("http") || v.includes("api")) return "webhook";
+  if (v.includes("schedule") || v.includes("cron") || v.includes("timer") || v.includes("interval")) return "schedule";
+  return "manual";
+}
 
 const ON_FAILURE_VALUES = new Set([
   "retry_3x_then_notify",
@@ -671,6 +757,48 @@ function parsePipelineResponse(rawText: string): MetaAgentResult {
     }
   }
 
+  // Coerce schedule if Meta-Agent returned an object instead of a string
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    (parsed as Record<string, unknown>).schedule &&
+    typeof (parsed as Record<string, unknown>).schedule === "object"
+  ) {
+    const s = (parsed as Record<string, unknown>).schedule as Record<string, unknown>;
+    if (s.interval && s.unit) {
+      (parsed as Record<string, unknown>).schedule = `every ${s.interval} ${s.unit}`;
+    } else if (s.every) {
+      (parsed as Record<string, unknown>).schedule = `every ${s.every}`;
+    } else if (s.frequency) {
+      (parsed as Record<string, unknown>).schedule = String(s.frequency);
+    } else if (s.cron) {
+      (parsed as Record<string, unknown>).schedule = String(s.cron);
+    } else {
+      (parsed as Record<string, unknown>).schedule = JSON.stringify(s);
+    }
+  }
+
+  // Coerce error_handling enum fields
+  if (parsed && typeof parsed === "object") {
+    const p = parsed as Record<string, unknown>;
+    if (p.error_handling && typeof p.error_handling === "object") {
+      const eh = p.error_handling as Record<string, unknown>;
+      if (typeof eh.global_fallback === "string") {
+        eh.global_fallback = normalizeGlobalFallback(eh.global_fallback);
+      }
+      if (typeof eh.retry_policy === "string") {
+        eh.retry_policy = normalizeRetryPolicy(eh.retry_policy);
+      }
+    }
+
+    // Coerce triggers array values
+    if (Array.isArray(p.triggers)) {
+      p.triggers = (p.triggers as unknown[]).map((t) =>
+        typeof t === "string" ? normalizeTrigger(t) : t
+      );
+    }
+  }
+
   const validation = validatePipelineSpec(parsed);
   if (validation.valid) {
     return { success: true, spec: validation.spec };
@@ -682,6 +810,53 @@ function parsePipelineResponse(rawText: string): MetaAgentResult {
   };
 }
 
+// ── Custom Tools Catalogue Builder ──────────────────────────────────────────
+
+function buildCustomToolsCatalogue(
+  tools: (CustomTool & { integration: CustomIntegration })[]
+): string {
+  if (tools.length === 0) return "";
+
+  const lines = [
+    "\n\n---\n\n# CUSTOM INTEGRATIONS (User-Defined API Tools)\n",
+    "The following custom tools are available IN ADDITION to the built-in tools above.",
+    "Custom tool IDs are prefixed with `custom_`. Use the exact ID shown.\n",
+  ];
+
+  // Group by integration
+  const byIntegration = new Map<string, (CustomTool & { integration: CustomIntegration })[]>();
+  for (const tool of tools) {
+    const key = tool.integration.name;
+    if (!byIntegration.has(key)) byIntegration.set(key, []);
+    byIntegration.get(key)!.push(tool);
+  }
+
+  for (const [integrationName, integrationTools] of byIntegration) {
+    const integration = integrationTools[0].integration;
+    lines.push(`### ${integrationName}`);
+    if (integration.description) lines.push(integration.description);
+    lines.push(`Base URL: ${integration.base_url}\n`);
+
+    for (const tool of integrationTools) {
+      const params = tool.parameters;
+      const allParams = [...(params.path ?? []), ...(params.query ?? []), ...(params.body ?? [])];
+      const paramList = allParams.length > 0
+        ? ` — Parameters: ${allParams.map((p) => `${p.name} (${p.type}${p.required ? ", required" : ""})`).join(", ")}`
+        : "";
+      lines.push(`- \`custom_${tool.name}\` — ${tool.description}${paramList}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+async function buildSystemPrompt(): Promise<string> {
+  const customTools = await getCustomTools();
+  const catalogue = buildCustomToolsCatalogue(customTools);
+  return PIPELINE_ARCHITECT_PROMPT + catalogue;
+}
+
 // ── Part C — Meta-Agent Functions ─────────────────────────────────────────────
 
 /** Non-streaming generation — single API call, returns complete result. */
@@ -689,10 +864,11 @@ export async function generatePipeline(
   userInput: string
 ): Promise<MetaAgentResult> {
   const client = createAnthropicClient();
+  const systemPrompt = await buildSystemPrompt();
   const response = await client.messages.create({
     model: ANTHROPIC_MODEL,
     max_tokens: 8000,
-    system: PIPELINE_ARCHITECT_PROMPT,
+    system: systemPrompt,
     messages: [{ role: "user", content: userInput }],
   });
 
@@ -726,10 +902,11 @@ export async function generatePipelineStream(
   let lastPercent = 5;
   let lastStep = "Analyzing your workflow…";
 
+  const systemPrompt = await buildSystemPrompt();
   const stream = client.messages.stream({
     model: ANTHROPIC_MODEL,
     max_tokens: 8000,
-    system: PIPELINE_ARCHITECT_PROMPT,
+    system: systemPrompt,
     messages: [{ role: "user", content: userInput }],
   });
 

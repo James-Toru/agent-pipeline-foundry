@@ -117,7 +117,7 @@ export interface AgentSpec {
   archetype: AgentArchetype;
   role: string;
   system_prompt: string;
-  tools: ToolId[];
+  tools: (ToolId | `custom_${string}`)[];
   inputs: Record<string, string>;
   outputs: Record<string, string>;
   requires_approval: boolean;
@@ -237,6 +237,98 @@ export interface ApprovalRequest {
   decided_at: string | null;
 }
 
+// ── Custom Integration Types ─────────────────────────────────────────────────
+
+export type AuthType = "none" | "api_key" | "bearer_token" | "basic_auth" | "oauth2" | "custom_header";
+
+export interface ApiKeyAuthConfig {
+  type: "api_key";
+  key_name: string;
+  key_value: string;
+  in: "header" | "query";
+}
+
+export interface BearerTokenAuthConfig {
+  type: "bearer_token";
+  token: string;
+}
+
+export interface BasicAuthConfig {
+  type: "basic_auth";
+  username: string;
+  password: string;
+}
+
+export interface OAuth2AuthConfig {
+  type: "oauth2";
+  client_id: string;
+  client_secret: string;
+  token_url: string;
+  access_token?: string;
+  refresh_token?: string;
+  scopes?: string[];
+}
+
+export interface CustomHeaderAuthConfig {
+  type: "custom_header";
+  header_name: string;
+  header_value: string;
+}
+
+export interface NoAuthConfig {
+  type: "none";
+}
+
+export type AuthConfig =
+  | NoAuthConfig
+  | ApiKeyAuthConfig
+  | BearerTokenAuthConfig
+  | BasicAuthConfig
+  | OAuth2AuthConfig
+  | CustomHeaderAuthConfig;
+
+export interface ToolParameter {
+  name: string;
+  type: "string" | "number" | "boolean" | "object" | "array";
+  description: string;
+  required: boolean;
+  default?: unknown;
+}
+
+export interface ToolParameters {
+  path: ToolParameter[];
+  query: ToolParameter[];
+  body: ToolParameter[];
+}
+
+export interface CustomTool {
+  id: string;
+  integration_id: string;
+  name: string;
+  description: string;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  parameters: ToolParameters;
+  response_mapping: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomIntegration {
+  id: string;
+  name: string;
+  base_url: string;
+  description: string | null;
+  auth_type: AuthType;
+  auth_config: AuthConfig;
+  headers: Record<string, string>;
+  body_wrapper?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  tools?: CustomTool[];
+}
+
 // ── Zod Validation Schema ────────────────────────────────────────────────────
 
 const AgentGuardrailsSchema = z.object({
@@ -332,12 +424,20 @@ const OnFailurePolicySchema = z.enum([
   "escalate_to_human",
 ]);
 
+// Accept built-in tool IDs or custom_* prefixed tool names
+const ToolIdOrCustomSchema = z.union([
+  ToolIdSchema,
+  z.string().refine((val) => val.startsWith("custom_"), {
+    message: "Custom tool IDs must be prefixed with 'custom_'",
+  }),
+]);
+
 const AgentSpecSchema = z.object({
   agent_id: z.string().min(1),
   archetype: AgentArchetypeSchema,
   role: z.string().min(1),
   system_prompt: z.string().min(1),
-  tools: z.array(ToolIdSchema),
+  tools: z.array(ToolIdOrCustomSchema),
   inputs: z.record(z.string(), z.string()),
   outputs: z.record(z.string(), z.string()),
   requires_approval: z.boolean(),
