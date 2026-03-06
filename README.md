@@ -22,14 +22,14 @@ An orchestration engine that reads a Pipeline Specification and executes it by s
 - **Pipeline Templates** — 6 pre-built templates across Sales, Research, Productivity, and Marketing categories
 - **Pipeline Duplication** — Clone any pipeline or template with one click
 - **Analytics Dashboard** — Token usage tracking, cost analysis, success rates, daily charts (Recharts), and paginated run history
-- **MCP Tool Integration** — Real tool execution via Model Context Protocol (Gmail, Google Calendar, Brave Search, Filesystem)
+- **7 Integration Suites** — Gmail, Google Calendar, Google Sheets, Brave Search, HubSpot CRM, Slack, and Notion — all via direct API calls
+- **Credential Management** — Settings UI saves credentials to Supabase (Vercel-safe); no filesystem writes
 - **Scheduled Triggers** — Cron-based automated pipeline execution
 - **Webhook Triggers** — HTTP endpoint per pipeline for external integrations
-- **Approval Gates** — Human-in-the-loop approval for irreversible actions
+- **Approval Gates** — Human-in-the-loop approval for irreversible actions, with optional Slack approval requests
 - **Rate Limiting** — Per-route sliding window rate limiting
 - **Error Alerting** — Severity-classified error alerts recorded as system messages
 - **Weekly Summary Reports** — Automated weekly metrics collection and report generation
-- **Integration Settings** — UI for configuring Gmail, Google Calendar, and Brave Search credentials
 
 ## Tech Stack
 
@@ -38,9 +38,10 @@ An orchestration engine that reads a Pipeline Specification and executes it by s
 | Framework | Next.js (App Router), TypeScript, Tailwind CSS |
 | AI | Anthropic Claude via `@anthropic-ai/sdk` |
 | Database | Supabase (Postgres + Realtime) |
-| Tool Integration | MCP Servers via `@modelcontextprotocol/sdk` |
+| Integrations | Direct API calls — `googleapis`, `@hubspot/api-client`, `@slack/web-api`, `@notionhq/client`, Brave REST |
 | Graph Visualization | React Flow (`@xyflow/react`) + dagre |
 | Charts | Recharts |
+| Icons | Lucide React |
 | Validation | Zod |
 | Scheduling | cron-parser |
 
@@ -61,7 +62,7 @@ src/
     templates/page.tsx                — Template library
     settings/page.tsx                 — Integration settings
     api/
-      generate/route.ts              — POST: natural language → pipeline spec
+      generate/route.ts              — POST: natural language → pipeline spec (SSE streaming)
       pipelines/route.ts             — GET/POST: list and save pipelines
       pipelines/[id]/route.ts        — GET/PATCH/POST: fetch, update, duplicate
       runs/route.ts                  — GET/POST: list runs, start new run
@@ -72,10 +73,14 @@ src/
       templates/route.ts             — GET/POST: list templates, clone to pipeline
       scheduler/route.ts             — GET/POST: heartbeat + create triggers
       webhooks/[pipeline_id]/route.ts — POST: webhook-triggered pipeline runs
-      settings/route.ts              — GET/POST: integration connection status
+      settings/route.ts              — GET/POST: integration status + save to Supabase
+      settings/test/route.ts         — POST: test integration connectivity
+      integrations/slack/
+        interactions/route.ts        — POST: Slack interactive message handler
       system/weekly-report/route.ts  — POST: trigger weekly summary report
   components/
-    NavBar.tsx                        — Top navigation
+    NavBar.tsx                        — Top navigation with Lucide icons
+    ui/                               — Shared UI: Card, Badge, Button, PageHeader, EmptyState, etc.
     generate/MetaBlock.tsx            — Gaps filled, assumptions, recommendations
     pipeline/PipelineGraph.tsx        — React Flow node graph with dagre layout
     pipeline/AgentCard.tsx            — Agent editor side panel
@@ -86,9 +91,21 @@ src/
     meta-agent.ts                     — Pipeline Architect system prompt + generation
     orchestrator.ts                   — Pipeline execution engine with token tracking
     pipeline-validator.ts             — Zod-based spec validation
-    tool-registry.ts                  — 17 tool definitions in Anthropic SDK format
-    mcp-config.ts                     — MCP server configurations
-    mcp-client-manager.ts            — MCP connection pool and tool execution
+    tool-registry.ts                  — Tool definitions in Anthropic SDK format
+    mcp-client-manager.ts             — Tool routing to direct API integrations
+    settings-manager.ts               — Credential storage in Supabase + process.env sync
+    google-auth.ts                    — Google OAuth2 client (Gmail, Calendar, Sheets)
+    hubspot-auth.ts                   — HubSpot Private App client
+    slack-auth.ts                     — Slack Web API client
+    notion-auth.ts                    — Notion API client + direct REST helper
+    integrations/
+      gmail.ts                        — Gmail read, send, draft
+      google-calendar.ts              — Calendar read, write, find slot
+      google-sheets.ts                — Sheets read, write, update, create, search, format
+      brave-search.ts                 — Web search, scrape, research
+      hubspot.ts                      — Contacts, companies, deals, tasks, notes, email, pipelines
+      slack.ts                        — Messages, DMs, notifications, approvals, channels
+      notion.ts                       — Pages, databases, content blocks, search
     scheduler.ts                      — Cron-based trigger processing
     templates.ts                      — 6 pre-built pipeline templates
     weekly-report-pipeline.ts         — Weekly summary report spec generator
@@ -98,11 +115,16 @@ src/
     supabase-server.ts                — Server-side Supabase client
   types/
     pipeline.ts                       — Master TypeScript types + Zod schema
+  instrumentation.ts                  — Loads credentials from Supabase at server startup
 supabase/
   migrations/
     001_initial_schema.sql            — pipelines, pipeline_runs, agent_messages, approval_requests
     002_scheduled_triggers.sql        — pipeline_scheduled_triggers
     003_analytics.sql                 — token_usage, pipeline_templates, analytics columns
+    004_enable_realtime.sql           — Realtime subscriptions for agent_messages
+    005_hubspot_credentials.sql       — HubSpot credential storage (legacy)
+    006_run_errors.sql                — Run error tracking
+    007_app_settings.sql              — App-wide credential storage (RLS service_role only)
 ```
 
 ## Database Schema
@@ -116,6 +138,7 @@ supabase/
 | `pipeline_scheduled_triggers` | Cron-based scheduled triggers |
 | `token_usage` | Per-agent token consumption tracking |
 | `pipeline_templates` | Pre-built pipeline templates |
+| `app_settings` | Credential storage (service_role access only, RLS-protected) |
 
 ## Available Tools
 
@@ -127,6 +150,10 @@ Agents can be assigned tools from these categories:
 | Calendar | `google_calendar_read`, `google_calendar_write`, `google_calendar_find_slot` |
 | Search & Research | `web_search`, `web_scrape`, `web_research` |
 | Data | `supabase_read`, `supabase_write`, `json_transform` |
+| HubSpot CRM | `hubspot_read_contacts`, `hubspot_write_contact`, `hubspot_read_companies`, `hubspot_write_company`, `hubspot_read_deals`, `hubspot_write_deal`, `hubspot_create_task`, `hubspot_create_note`, `hubspot_send_email`, `hubspot_read_pipeline_stages` |
+| Google Sheets | `sheets_read_rows`, `sheets_write_rows`, `sheets_update_cells`, `sheets_create_spreadsheet`, `sheets_search`, `sheets_format_cells` |
+| Slack | `slack_send_message`, `slack_send_dm`, `slack_post_notification`, `slack_request_approval`, `slack_create_channel`, `slack_read_messages` |
+| Notion | `notion_create_page`, `notion_read_pages`, `notion_update_page`, `notion_append_content`, `notion_create_standalone_page`, `notion_search`, `notion_check_exists` |
 | Utility | `human_approval_request`, `pipeline_notify`, `schedule_trigger` |
 
 ## Agent Archetypes
@@ -159,7 +186,7 @@ The Meta-Agent assigns agents from 21 archetypes: Ingestion, Enrichment, Validat
    cp .env.example .env.local
    ```
 
-4. Fill in your environment variables in `.env.local`:
+4. Fill in your core environment variables in `.env.local`:
    ```
    ANTHROPIC_API_KEY=         # Your Anthropic API key
    ANTHROPIC_MODEL=           # Optional (defaults to claude-sonnet-4-5-20250929)
@@ -168,10 +195,14 @@ The Meta-Agent assigns agents from 21 archetypes: Ingestion, Enrichment, Validat
    SUPABASE_SERVICE_ROLE_KEY= # Supabase service role key
    ```
 
-5. Run the database migrations in your Supabase SQL Editor:
+5. Run all database migrations in your Supabase SQL Editor (in order):
    - `supabase/migrations/001_initial_schema.sql`
    - `supabase/migrations/002_scheduled_triggers.sql`
    - `supabase/migrations/003_analytics.sql`
+   - `supabase/migrations/004_enable_realtime.sql`
+   - `supabase/migrations/005_hubspot_credentials.sql`
+   - `supabase/migrations/006_run_errors.sql`
+   - `supabase/migrations/007_app_settings.sql`
 
 6. Start the development server:
    ```bash
@@ -180,18 +211,25 @@ The Meta-Agent assigns agents from 21 archetypes: Ingestion, Enrichment, Validat
 
 7. Open [http://localhost:3000](http://localhost:3000)
 
-### Optional Integrations
+### Integrations
 
-Configure these in the Settings page (`/settings`) or directly in `.env.local`:
+Configure integrations in the **Settings** page (`/settings`). Credentials are stored in Supabase and loaded into the runtime automatically — no server restart required.
 
-- **Gmail & Google Calendar** — OAuth2 credentials from Google Cloud Console
-- **Brave Search** — API key from [brave.com/search/api](https://brave.com/search/api/)
+| Integration | Credentials Needed | Setup Guide |
+|-------------|-------------------|-------------|
+| **Gmail, Calendar & Sheets** | OAuth2 Client ID, Secret, Refresh Token | [Google Cloud Console](https://console.cloud.google.com) — refresh token must include gmail, calendar, spreadsheets, and drive.file scopes |
+| **Brave Search** | API Key | [brave.com/search/api](https://brave.com/search/api/) |
+| **HubSpot CRM** | Private App Access Token, Portal ID (optional) | HubSpot Settings → Integrations → Private Apps |
+| **Slack** | Bot Token, Signing Secret, Approval Channel (optional) | [api.slack.com/apps](https://api.slack.com/apps) — scopes: `channels:read`, `channels:manage`, `chat:write`, `chat:write.public`, `im:write`, `users:read` |
+| **Notion** | Internal Integration Secret | [notion.so/my-integrations](https://www.notion.so/my-integrations) — each database/page must be shared with the integration |
+
+You can also set credentials as environment variables (in `.env.local` or Vercel). Environment variables take precedence over Supabase-stored values.
 
 ## API Routes
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| POST | `/api/generate` | Generate pipeline spec from natural language |
+| POST | `/api/generate` | Generate pipeline spec from natural language (SSE stream) |
 | GET | `/api/pipelines` | List all pipelines |
 | POST | `/api/pipelines` | Save a new pipeline |
 | GET | `/api/pipelines/:id` | Get pipeline by ID |
@@ -209,7 +247,9 @@ Configure these in the Settings page (`/settings`) or directly in `.env.local`:
 | POST | `/api/scheduler` | Create a scheduled trigger |
 | POST | `/api/webhooks/:pipeline_id` | Trigger a pipeline via webhook |
 | GET | `/api/settings` | Get integration connection status |
-| POST | `/api/settings` | Update integration credentials |
+| POST | `/api/settings` | Save integration credentials to Supabase |
+| POST | `/api/settings/test` | Test integration connectivity |
+| POST | `/api/integrations/slack/interactions` | Slack interactive message handler |
 | POST | `/api/system/weekly-report` | Trigger a weekly summary report |
 
 ## Rate Limits
@@ -233,4 +273,3 @@ Configure these in the Settings page (`/settings`) or directly in `.env.local`:
 | Meeting Notes Processor | Productivity | 3 |
 | Weekly Competitor Monitor | Research | 3 |
 | Content Publishing Pipeline | Marketing | 4 |
-
