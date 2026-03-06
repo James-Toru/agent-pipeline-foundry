@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { PipelineSpec } from "@/types/pipeline";
 
 type ProgressState = { step: string; percent: number };
@@ -24,8 +25,21 @@ type GenerateResult =
   | { success: true; spec: PipelineSpec }
   | { success: false; error: string };
 
-export default function GeneratePage() {
-  const [input, setInput] = useState("");
+function GeneratePageInner() {
+  const searchParams = useSearchParams();
+  const discoveryPrompt = searchParams.get("prompt");
+  const focusTextarea = searchParams.get("focus") === "true";
+
+  const [input, setInput] = useState(
+    discoveryPrompt ? decodeURIComponent(discoveryPrompt) : ""
+  );
+
+  useEffect(() => {
+    if (focusTextarea) {
+      const textarea = document.querySelector("textarea");
+      textarea?.focus();
+    }
+  }, [focusTextarea]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -153,6 +167,20 @@ export default function GeneratePage() {
 
         {/* Input */}
         <div className="space-y-4 animate-fade-up-delay-1">
+          {discoveryPrompt && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <span className="text-emerald-400 text-sm">&#x2728;</span>
+              <span className="text-sm text-emerald-300 flex-1">
+                Pre-filled from Workflow Discovery
+              </span>
+              <button
+                onClick={() => setInput("")}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -160,6 +188,20 @@ export default function GeneratePage() {
             rows={6}
             className="w-full resize-none rounded-xl border-0 ring-1 ring-white/8 bg-zinc-900/80 backdrop-blur-sm px-4 py-3.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200"
           />
+          {!discoveryPrompt && input.trim() === "" && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-zinc-700/50 bg-zinc-800/30">
+              <span className="text-lg">&#x1F9ED;</span>
+              <p className="text-sm text-zinc-400 flex-1">
+                Not sure what to automate?
+              </p>
+              <Link
+                href="/discover"
+                className="text-sm text-emerald-400 hover:text-emerald-300 font-medium whitespace-nowrap transition-colors"
+              >
+                Try Workflow Discovery &rarr;
+              </Link>
+            </div>
+          )}
           <button
             onClick={handleGenerate}
             disabled={isGenerating || !input.trim()}
@@ -371,5 +413,19 @@ export default function GeneratePage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function GeneratePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+          <Loader2 className="size-6 animate-spin text-zinc-600" />
+        </div>
+      }
+    >
+      <GeneratePageInner />
+    </Suspense>
   );
 }

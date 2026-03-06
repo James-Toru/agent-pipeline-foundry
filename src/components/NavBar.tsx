@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Cpu,
+  Compass,
   Sparkles,
   GitBranch,
   LayoutTemplate,
@@ -13,9 +14,10 @@ import {
 } from "lucide-react";
 
 const NAV_LINKS = [
+  { href: "/discover", label: "Discover", icon: Compass, exact: false },
   { href: "/", label: "Generate", icon: Sparkles, exact: true },
-  { href: "/pipelines", label: "Pipelines", icon: GitBranch, exact: false },
   { href: "/templates", label: "Templates", icon: LayoutTemplate, exact: false },
+  { href: "/pipelines", label: "Pipelines", icon: GitBranch, exact: false },
   { href: "/runs", label: "Runs", icon: PlayCircle, exact: false },
   { href: "/analytics", label: "Analytics", icon: BarChart2, exact: false },
   { href: "/settings", label: "Settings", icon: Settings2, exact: false },
