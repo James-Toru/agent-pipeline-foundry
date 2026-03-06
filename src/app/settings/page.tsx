@@ -27,6 +27,7 @@ import {
   Trash2,
   Shield,
   User,
+  Dices,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -366,6 +367,13 @@ interface TeamMember {
   created_at: string;
 }
 
+function generatePassword(length = 16): string {
+  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*";
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => chars[b % chars.length]).join("");
+}
+
 function TeamManagement() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -497,14 +505,24 @@ function TeamManagement() {
               required
               className="rounded-lg bg-zinc-800/80 px-3 py-2 text-sm text-white ring-1 ring-white/8 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all border-0"
             />
-            <input
-              type="password"
-              placeholder="Temporary password"
-              value={invitePassword}
-              onChange={(e) => setInvitePassword(e.target.value)}
-              required
-              className="rounded-lg bg-zinc-800/80 px-3 py-2 text-sm text-white ring-1 ring-white/8 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all border-0"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Temporary password"
+                value={invitePassword}
+                onChange={(e) => setInvitePassword(e.target.value)}
+                required
+                className="w-full rounded-lg bg-zinc-800/80 px-3 py-2 pr-9 text-sm text-white ring-1 ring-white/8 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all border-0 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setInvitePassword(generatePassword())}
+                title="Generate random password"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+              >
+                <Dices className="size-4" />
+              </button>
+            </div>
             <select
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as "admin" | "member")}
