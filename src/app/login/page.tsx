@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { Cpu, LogIn, AlertCircle, Loader2 } from "lucide-react";
+import { Cpu, LogIn, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -13,6 +14,7 @@ function LoginForm() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,15 +87,24 @@ function LoginForm() {
             >
               Password
             </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full rounded-lg bg-zinc-900/80 px-3 py-2.5 text-sm text-white ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
-              placeholder="Enter your password"
-            />
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full rounded-lg bg-zinc-900/80 px-3 py-2.5 pr-10 text-sm text-white ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+                placeholder="Enter your password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
           </div>
 
           <button
@@ -110,9 +121,17 @@ function LoginForm() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-zinc-600">
-          Contact your admin if you need an account.
-        </p>
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <Link
+            href="/forgot-password"
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Forgot your password?
+          </Link>
+          <p className="text-xs text-zinc-600">
+            Contact your admin if you need an account.
+          </p>
+        </div>
       </div>
     </div>
   );

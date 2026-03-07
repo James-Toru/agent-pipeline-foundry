@@ -3,7 +3,11 @@ import { createSupabaseMiddlewareClient } from "@/lib/supabase-middleware";
 
 const PUBLIC_PATHS = [
   "/login",
+  "/forgot-password",
+  "/reset-password",
+  "/update-password",
   "/auth/callback",
+  "/api/auth/reset-password",
   "/api/integrations/slack/interactions",
 ];
 
@@ -42,6 +46,21 @@ export async function middleware(request: NextRequest) {
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("redirectTo", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Check if user must reset their temporary password
+  if (pathname !== "/reset-password" && !pathname.startsWith("/api/")) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("must_reset_password")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.must_reset_password) {
+      const resetUrl = request.nextUrl.clone();
+      resetUrl.pathname = "/reset-password";
+      return NextResponse.redirect(resetUrl);
+    }
   }
 
   return response;

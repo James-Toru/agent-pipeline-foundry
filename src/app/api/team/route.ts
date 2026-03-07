@@ -66,11 +66,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: createError.message }, { status: 400 });
   }
 
-  // Update the auto-created profile's role if it's not the default
-  if (memberRole !== "member" && newUser.user) {
+  // Update the auto-created profile: set role and flag for password reset
+  if (newUser.user) {
+    const profileUpdate: Record<string, unknown> = { must_reset_password: true };
+    if (memberRole !== "member") {
+      profileUpdate.role = memberRole;
+    }
     await supabase
       .from("user_profiles")
-      .update({ role: memberRole })
+      .update(profileUpdate)
       .eq("id", newUser.user.id);
   }
 
