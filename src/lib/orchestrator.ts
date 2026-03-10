@@ -1113,6 +1113,8 @@ export async function runPipeline(
   let runTotalTokens = 0;
   let runTotalCost = 0;
 
+  const supabase = await createSupabaseServerClient();
+
   try {
     await updateRunStatus(run_id, "running");
 
@@ -1121,6 +1123,20 @@ export async function runPipeline(
 
     for (const layer of layers) {
       if (layer.length === 0) continue;
+
+      // Check if the run has been cancelled before starting the next layer
+      const { data: runCheck } = await supabase
+        .from("pipeline_runs")
+        .select("status")
+        .eq("id", run_id)
+        .single();
+
+      if (runCheck?.status === "cancelled") {
+        console.log(`[Orchestrator] Run ${run_id} cancelled by user`);
+        const durationMs = Date.now() - startTime;
+        await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
+        return;
+      }
 
       const agents = layer
         .map((id) => agentMap.get(id))

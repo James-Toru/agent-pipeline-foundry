@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { runPipeline } from "@/lib/orchestrator";
 import { checkRateLimit, RUN_LIMIT } from "@/lib/rate-limiter";
 import { checkRequiredIntegrations } from "@/lib/pipeline-errors";
+
+export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
@@ -81,38 +82,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Start the pipeline execution asynchronously (fire-and-forget)
-    // The orchestrator writes status updates to Supabase for Realtime
-    runPipeline(run.id, pipeline.spec, input_data ?? {}).catch((err) => {
-      console.error(`Pipeline run ${run.id} failed:`, err);
-      // Orchestrator's own catch should have written structured errors already.
-      // This is a safety net for unexpected crashes only.
-      createSupabaseServerClient().then((sb) =>
-        sb
-          .from("pipeline_runs")
-          .select("status")
-          .eq("id", run.id)
-          .single()
-          .then(({ data }) => {
-            if (data?.status !== "failed") {
-              const errorMsg = err instanceof Error ? err.message : String(err);
-              sb.from("pipeline_runs")
-                .update({
-                  status: "failed",
-                  completed_at: new Date().toISOString(),
-                  error_code: "UNKNOWN_ERROR",
-                  error_message: errorMsg,
-                  error_user_message: "An unexpected error occurred during this pipeline run.",
-                  error_action: "Check the error details below. If the problem persists contact support with the run ID.",
-                })
-                .eq("id", run.id)
-                .then(() => {});
-            }
-          })
-      );
-    });
+    // Fire the execute route without awaiting — pipeline runs in background
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `${request.headers.get("x-forwarded-proto") || "http"}://${request.headers.get("host")}`;
 
-    return NextResponse.json({ run }, { status: 201 });
+    fetch(`${baseUrl}/api/pipelines/${pipeline_id}/execute`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": process.env.INTERNAL_SECRET!,
+      },
+      body: JSON.stringify({ runId: run.id }),
+    }).catch((err) => {
+      console.error(`[Run] Execute fire failed for run ${run.id}:`, err);
+    });
+    // No await — intentional
+
+    return NextResponse.json({ run }, { status: 202 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "An unexpected error occurred.";

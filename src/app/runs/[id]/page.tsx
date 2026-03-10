@@ -21,6 +21,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Loader2,
+  XCircle,
+  Ban,
 } from "lucide-react";
 
 type BadgeVariant = "default" | "info" | "success" | "warning" | "error";
@@ -34,6 +36,7 @@ const RUN_STATUS_CONFIG: Record<
   paused: { badge: "warning", label: "Paused — Awaiting Approval", ping: true },
   completed: { badge: "success", label: "Completed" },
   failed: { badge: "error", label: "Failed" },
+  cancelled: { badge: "default", label: "Cancelled" },
 };
 
 interface RunData {
@@ -62,6 +65,7 @@ export default function RunDashboardPage() {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const supabaseRef = useRef(createSupabaseBrowserClient());
 
   const fetchRun = useCallback(async () => {
@@ -206,6 +210,53 @@ export default function RunDashboardPage() {
     );
   }
 
+  async function handleCancel() {
+    if (!run) return;
+    setIsCancelling(true);
+    try {
+      const res = await fetch(
+        `/api/pipelines/${run.pipeline_id}/runs/${runId}/cancel`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        console.error("Cancel failed:", data.error);
+      }
+    } catch (err) {
+      console.error("Cancel request failed:", err);
+    } finally {
+      setIsCancelling(false);
+    }
+  }
+
+  // Polling fallback — keeps state updated if Realtime websocket drops
+  const TERMINAL_STATES: PipelineRunStatus[] = ["completed", "failed", "cancelled"];
+
+  useEffect(() => {
+    if (!run || TERMINAL_STATES.includes(run.status)) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/runs/${runId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.run) {
+          setRun(data.run);
+          setMessages(data.messages);
+          setApprovals(data.approvals);
+          if (TERMINAL_STATES.includes(data.run.status)) {
+            clearInterval(interval);
+          }
+        }
+      } catch {
+        // Polling failure is non-critical — Realtime may still be working
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.status, runId]);
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-950">
@@ -254,9 +305,25 @@ export default function RunDashboardPage() {
                 </Badge>
               </div>
             </div>
-            <code className="text-xs text-zinc-600 font-mono bg-zinc-900 ring-1 ring-white/6 px-2 py-1 rounded-md">
-              {runId.slice(0, 8)}
-            </code>
+            <div className="flex items-center gap-2">
+              {(run.status === "running" || run.status === "pending" || run.status === "paused") && (
+                <button
+                  onClick={handleCancel}
+                  disabled={isCancelling}
+                  className="flex items-center gap-1.5 rounded-lg ring-1 ring-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 hover:ring-red-500/50 transition-all duration-200 disabled:opacity-40"
+                >
+                  {isCancelling ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Ban className="size-3" />
+                  )}
+                  Cancel
+                </button>
+              )}
+              <code className="text-xs text-zinc-600 font-mono bg-zinc-900 ring-1 ring-white/6 px-2 py-1 rounded-md">
+                {runId.slice(0, 8)}
+              </code>
+            </div>
           </div>
 
           {/* Progress bar */}

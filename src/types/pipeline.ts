@@ -185,7 +185,8 @@ export type PipelineRunStatus =
   | "running"
   | "paused"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type AgentMessageStatus =
   | "pending"
