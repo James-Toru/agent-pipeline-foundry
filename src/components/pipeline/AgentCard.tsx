@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Sliders,
+  Cpu,
   ArrowDownToLine,
   ArrowUpFromLine,
   Save,
@@ -266,6 +267,25 @@ export default function AgentCard({ agent, onUpdate, onClose }: AgentCardProps) 
               />
             </div>
           </div>
+        </div>
+
+        {/* Model Override */}
+        <div>
+          <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <Cpu className="size-3" />
+            Model Override
+          </label>
+          <select
+            value={draft.model ?? ""}
+            onChange={(e) => updateField("model", e.target.value || null)}
+            className="w-full rounded-lg ring-1 ring-white/8 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none border-0 cursor-pointer"
+          >
+            <option value="">Pipeline Default</option>
+            <option value="claude-haiku-4-5-20251001">Claude 4.5 Haiku</option>
+            <option value="claude-sonnet-4-5-20250929">Claude 4.5 Sonnet</option>
+            <option value="claude-sonnet-4-6">Claude 4.6 Sonnet</option>
+            <option value="claude-opus-4-6">Claude 4.6 Opus</option>
+          </select>
         </div>
 
         {/* Inputs */}

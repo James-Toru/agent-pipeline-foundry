@@ -1,4 +1,5 @@
-import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
+import { createAnthropicClient } from "@/lib/ai-config";
+import { META_AGENT_MODEL_ID } from "@/lib/models";
 import { validatePipelineSpec } from "@/lib/pipeline-validator";
 import { getCustomTools } from "@/lib/custom-tool-executor";
 import type { PipelineSpec, CustomTool, CustomIntegration } from "@/types/pipeline";
@@ -864,9 +865,10 @@ export async function generatePipeline(
   userInput: string
 ): Promise<MetaAgentResult> {
   const client = createAnthropicClient();
+  const metaModel = process.env.ANTHROPIC_MODEL?.trim() || META_AGENT_MODEL_ID;
   const systemPrompt = await buildSystemPrompt();
   const response = await client.messages.create({
-    model: ANTHROPIC_MODEL,
+    model: metaModel,
     max_tokens: 8000,
     system: systemPrompt,
     messages: [{ role: "user", content: userInput }],
@@ -892,6 +894,7 @@ export async function generatePipelineStream(
   onProgress: ProgressCallback
 ): Promise<MetaAgentResult> {
   const client = createAnthropicClient();
+  const metaModel = process.env.ANTHROPIC_MODEL?.trim() || META_AGENT_MODEL_ID;
   onProgress("Analyzing your workflow…", 5);
 
   // Estimate total chars for a full pipeline spec — used for progress scaling.
@@ -904,7 +907,7 @@ export async function generatePipelineStream(
 
   const systemPrompt = await buildSystemPrompt();
   const stream = client.messages.stream({
-    model: ANTHROPIC_MODEL,
+    model: metaModel,
     max_tokens: 8000,
     system: systemPrompt,
     messages: [{ role: "user", content: userInput }],

@@ -35,6 +35,9 @@ import {
   FileCode,
   TestTube,
   Pencil,
+  Cpu,
+  Sparkles,
+  Crown,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -1773,8 +1776,164 @@ function CustomIntegrations() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+// ── Model Configuration ──────────────────────────────────────────────────────
+
+interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+  tier: "fast" | "balanced" | "powerful";
+}
+
+const MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: "claude-haiku-4-5-20251001",
+    name: "Claude 4.5 Haiku",
+    description: "Fastest and most cost-effective. Best for simple, high-volume agent tasks.",
+    tier: "fast",
+  },
+  {
+    id: "claude-sonnet-4-5-20250929",
+    name: "Claude 4.5 Sonnet",
+    description: "Balanced speed and intelligence. Recommended for most pipeline agents.",
+    tier: "balanced",
+  },
+  {
+    id: "claude-sonnet-4-6",
+    name: "Claude 4.6 Sonnet",
+    description: "Latest Sonnet model with improved reasoning and tool use.",
+    tier: "balanced",
+  },
+  {
+    id: "claude-opus-4-6",
+    name: "Claude 4.6 Opus",
+    description: "Most capable model. Best for complex reasoning and pipeline design.",
+    tier: "powerful",
+  },
+];
+
+const TIER_STYLES: Record<string, { icon: typeof Zap; color: string; label: string }> = {
+  fast: { icon: Zap, color: "text-emerald-400", label: "Fast" },
+  balanced: { icon: Sparkles, color: "text-blue-400", label: "Balanced" },
+  powerful: { icon: Crown, color: "text-amber-400", label: "Powerful" },
+};
+
+function ModelConfiguration({ currentModel }: { currentModel: string }) {
+  const [selectedModel, setSelectedModel] = useState(currentModel);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function handleSave() {
+    if (selectedModel === currentModel) return;
+    setIsSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          integration: "model",
+          credentials: { ANTHROPIC_MODEL: selectedModel },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMessage("Default model updated. Takes effect on next pipeline run.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to save model.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const isSuccess = message?.toLowerCase().includes("updated");
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg ring-1 bg-violet-500/10 ring-violet-500/20">
+          <Cpu className="size-4 text-violet-400" />
+        </div>
+        <div>
+          <h2 className="text-sm font-medium text-white">Default Model</h2>
+          <p className="text-xs text-zinc-500">
+            Choose the AI model used for pipeline agents. Can be overridden per pipeline or per agent.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        {MODEL_OPTIONS.map((model) => {
+          const isSelected = selectedModel === model.id;
+          const tierStyle = TIER_STYLES[model.tier];
+          const TierIcon = tierStyle.icon;
+
+          return (
+            <button
+              key={model.id}
+              onClick={() => { setSelectedModel(model.id); setMessage(null); }}
+              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-left ring-1 transition-all duration-200 ${
+                isSelected
+                  ? "ring-blue-500/50 bg-blue-500/10 shadow-lg shadow-blue-500/10"
+                  : "ring-white/6 bg-zinc-900/80 hover:ring-white/12"
+              }`}
+            >
+              <div className={`flex h-4 w-4 items-center justify-center rounded-full ring-2 ${
+                isSelected ? "ring-blue-500 bg-blue-500" : "ring-zinc-600 bg-transparent"
+              }`}>
+                {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">{model.name}</span>
+                  <span className={`flex items-center gap-1 text-[10px] font-medium ${tierStyle.color}`}>
+                    <TierIcon className="size-3" />
+                    {tierStyle.label}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-500 mt-0.5">{model.description}</p>
+              </div>
+              <code className="hidden sm:block text-[10px] text-zinc-600 font-mono">{model.id}</code>
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedModel !== currentModel && (
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 rounded-xl bg-linear-to-b from-blue-500 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all hover:shadow-blue-500/30 disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+            Save Model
+          </button>
+          <button
+            onClick={() => { setSelectedModel(currentModel); setMessage(null); }}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {message && (
+        <div className={`mt-3 flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
+          isSuccess
+            ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+            : "ring-red-500/20 bg-red-500/10 text-red-400"
+        }`}>
+          {isSuccess ? <CheckCircle2 className="size-3.5 mt-0.5 shrink-0" /> : <AlertCircle className="size-3.5 mt-0.5 shrink-0" />}
+          <span>{message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const [status, setStatus] = useState<IntegrationStatus | null>(null);
+  const [status, setStatus] = useState<(IntegrationStatus & { default_model?: string }) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -1812,10 +1971,13 @@ export default function SettingsPage() {
       <div className="mx-auto max-w-2xl">
         <PageHeader
           icon={<Settings2 className="size-4" />}
-          title="Integrations"
-          description="Connect external tools to enable real agent actions."
+          title="Settings"
+          description="Configure models, integrations, and team access."
         />
 
+        <ModelConfiguration currentModel={status?.default_model ?? "claude-sonnet-4-5-20250929"} />
+
+        <h3 className="text-sm font-medium text-zinc-400 mb-3">Integrations</h3>
         <div className="space-y-3">
           {INTEGRATIONS.map((config) => (
             <IntegrationCard

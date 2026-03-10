@@ -10,6 +10,7 @@ import {
   XCircle,
   ShieldAlert,
   ChevronDown,
+  Cpu,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<
@@ -90,6 +91,12 @@ export default function AgentStatusCard({
       <div className="mt-1.5 flex items-center gap-2 text-xs text-zinc-500">
         <Badge variant="info">{agentSpec.archetype}</Badge>
         <span>{agentSpec.tools.length} tools</span>
+        {agentSpec.model && (
+          <span className="flex items-center gap-1 text-violet-400">
+            <Cpu className="size-2.5" />
+            {agentSpec.model.replace("claude-", "").replace(/-\d+$/, "")}
+          </span>
+        )}
         {message?.started_at && (
           <span className="ml-auto font-mono">
             {formatDuration(message.started_at, message.completed_at)}

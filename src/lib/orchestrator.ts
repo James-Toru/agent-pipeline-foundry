@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
+import { resolveModel, getModelPricing } from "@/lib/models";
 import { getToolsForAgent } from "@/lib/tool-registry";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { MCPClientManager, INTERNAL_TOOLS } from "@/lib/mcp-client-manager";
@@ -61,20 +62,12 @@ interface RunContext {
 
 // ── Token Cost Calculation ──────────────────────────────────────────────────
 
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Pricing per million tokens (USD)
-  "claude-sonnet-4-5-20250929": { input: 3, output: 15 },
-  "claude-sonnet-4-5-latest": { input: 3, output: 15 },
-  "claude-haiku-4-5-20251001": { input: 0.8, output: 4 },
-  "claude-opus-4-6": { input: 15, output: 75 },
-};
-
 function calculateCost(
   model: string,
   inputTokens: number,
   outputTokens: number
 ): number {
-  const pricing = MODEL_PRICING[model] ?? { input: 3, output: 15 };
+  const pricing = getModelPricing(model);
   return (
     (inputTokens / 1_000_000) * pricing.input +
     (outputTokens / 1_000_000) * pricing.output
@@ -523,6 +516,11 @@ async function executeAgent(
 
   try {
     const client = createAnthropicClient();
+    const agentModel = resolveModel(
+      agentSpec.model,
+      ctx.pipeline.model,
+      ANTHROPIC_MODEL
+    );
     const builtInToolIds = agentSpec.tools.filter(
       (t): t is ToolId => !t.startsWith("custom_")
     );
@@ -606,7 +604,7 @@ async function executeAgent(
                 "Do not wrap it in markdown code fences.";
 
           response = await client.messages.create({
-            model: ANTHROPIC_MODEL,
+            model: agentModel,
             max_tokens: agentSpec.guardrails.max_tokens,
             temperature: agentSpec.guardrails.temperature,
             system: agentSpec.system_prompt + systemPromptAddition,
@@ -761,12 +759,12 @@ async function executeAgent(
     }
 
     // Build token usage record
-    const costUsd = calculateCost(ANTHROPIC_MODEL, totalInputTokens, totalOutputTokens);
+    const costUsd = calculateCost(agentModel, totalInputTokens, totalOutputTokens);
     const tokenUsage: TokenUsageRecord = {
       input_tokens: totalInputTokens,
       output_tokens: totalOutputTokens,
       cost_usd: costUsd,
-      model: ANTHROPIC_MODEL,
+      model: agentModel,
     };
 
     // Record token usage to database

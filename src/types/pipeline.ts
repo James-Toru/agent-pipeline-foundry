@@ -124,6 +124,7 @@ export interface AgentSpec {
   approval_message: string | null;
   on_failure: OnFailurePolicy;
   guardrails: AgentGuardrails;
+  model?: string | null;
 }
 
 export interface FlowEdge {
@@ -165,6 +166,7 @@ export interface PipelineSpec {
   orchestration: Orchestration;
   error_handling: ErrorHandling;
   meta: PipelineMeta;
+  model?: string | null;
 }
 
 // ── Database Record Types ────────────────────────────────────────────────────
@@ -444,6 +446,7 @@ const AgentSpecSchema = z.object({
   approval_message: z.string().nullable(),
   on_failure: OnFailurePolicySchema,
   guardrails: AgentGuardrailsSchema,
+  model: z.string().nullable().optional(),
 });
 
 const FlowEdgeSchema = z.object({
@@ -489,4 +492,5 @@ export const PipelineSpecSchema = z.object({
   orchestration: OrchestrationSchema,
   error_handling: ErrorHandlingSchema,
   meta: PipelineMetaSchema,
+  model: z.string().nullable().optional(),
 });

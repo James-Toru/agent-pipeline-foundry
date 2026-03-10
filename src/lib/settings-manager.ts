@@ -36,6 +36,7 @@ export const CREDENTIAL_MAP: Record<string, string> = {
 
   // Anthropic
   anthropic_api_key: "ANTHROPIC_API_KEY",
+  default_model: "ANTHROPIC_MODEL",
 };
 
 /**

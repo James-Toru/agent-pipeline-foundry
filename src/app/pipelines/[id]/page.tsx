@@ -22,6 +22,7 @@ import {
   Loader2,
   Save,
   Trash2,
+  Cpu,
 } from "lucide-react";
 import DeletePipelineDialog from "@/components/pipeline/DeletePipelineDialog";
 
@@ -278,6 +279,23 @@ export default function PipelineInspectorPage() {
             <span className="flex items-center gap-1.5">
               <Bot className="size-3" />
               {pipeline.spec.agents.length} agents
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Cpu className="size-3" />
+              <select
+                value={pipeline.spec.model ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value || null;
+                  updateSpec({ ...pipeline.spec, model: val });
+                }}
+                className="rounded-md bg-zinc-800/80 ring-1 ring-white/8 px-2 py-0.5 text-xs text-zinc-300 outline-none focus:ring-blue-500/50 border-0 cursor-pointer"
+              >
+                <option value="">Global Default</option>
+                <option value="claude-haiku-4-5-20251001">Claude 4.5 Haiku</option>
+                <option value="claude-sonnet-4-5-20250929">Claude 4.5 Sonnet</option>
+                <option value="claude-sonnet-4-6">Claude 4.6 Sonnet</option>
+                <option value="claude-opus-4-6">Claude 4.6 Opus</option>
+              </select>
             </span>
             <span className="flex items-center gap-1.5">
               <Calendar className="size-3" />

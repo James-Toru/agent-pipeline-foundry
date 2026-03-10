@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { DEFAULT_MODEL_ID } from "@/lib/models";
 
 export const ANTHROPIC_MODEL: string =
-  process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-5-20250929";
+  process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL_ID;
 
 export const AnthropicConfig = {
   model: ANTHROPIC_MODEL,

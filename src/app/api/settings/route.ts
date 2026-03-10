@@ -4,6 +4,7 @@ import { isSlackConfigured } from "@/lib/slack-auth";
 import { isNotionConfigured } from "@/lib/notion-auth";
 import { isGoogleConfigured } from "@/lib/google-auth";
 import { saveSettings, CREDENTIAL_MAP } from "@/lib/settings-manager";
+import { DEFAULT_MODEL_ID } from "@/lib/models";
 
 // Reverse map: ENV_VAR_NAME → supabase setting key
 const ENV_TO_SETTING: Record<string, string> = {};
@@ -26,6 +27,7 @@ export async function GET() {
       hubspot: { configured: isHubSpotConfigured() },
       slack: { configured: isSlackConfigured() },
       notion: { configured: isNotionConfigured() },
+      default_model: process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL_ID,
     },
     { status: 200 }
   );
