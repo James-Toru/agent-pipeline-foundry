@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { runPipeline } from "@/lib/orchestrator";
 import { checkRateLimit, WEBHOOK_LIMIT } from "@/lib/rate-limiter";
-
-export const maxDuration = 30;
 
 export async function POST(
   request: NextRequest,
@@ -80,20 +79,19 @@ export async function POST(
       );
     }
 
-    // Fire the execute route without awaiting — pipeline runs in background
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `${request.headers.get("x-forwarded-proto") || "http"}://${request.headers.get("host")}`;
-
-    fetch(`${baseUrl}/api/pipelines/${pipeline_id}/execute`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_SECRET!,
-      },
-      body: JSON.stringify({ runId: run.id }),
-    }).catch((err) => {
-      console.error(`[Webhook] Execute fire failed for run ${run.id}:`, err);
+    // Start pipeline execution in background
+    runPipeline(run.id, pipeline.spec, input_data).catch((err) => {
+      console.error(`[Webhook] Pipeline run ${run.id} failed:`, err);
+      createSupabaseServerClient().then((sb) =>
+        sb
+          .from("pipeline_runs")
+          .update({
+            status: "failed",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", run.id)
+      );
     });
-    // No await — intentional
 
     return NextResponse.json(
       {

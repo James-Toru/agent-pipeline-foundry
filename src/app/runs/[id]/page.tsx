@@ -21,7 +21,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Loader2,
-  XCircle,
   Ban,
 } from "lucide-react";
 
@@ -228,34 +227,6 @@ export default function RunDashboardPage() {
       setIsCancelling(false);
     }
   }
-
-  // Polling fallback — keeps state updated if Realtime websocket drops
-  const TERMINAL_STATES: PipelineRunStatus[] = ["completed", "failed", "cancelled"];
-
-  useEffect(() => {
-    if (!run || TERMINAL_STATES.includes(run.status)) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/runs/${runId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.run) {
-          setRun(data.run);
-          setMessages(data.messages);
-          setApprovals(data.approvals);
-          if (TERMINAL_STATES.includes(data.run.status)) {
-            clearInterval(interval);
-          }
-        }
-      } catch {
-        // Polling failure is non-critical — Realtime may still be working
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.status, runId]);
 
   if (isLoading) {
     return (
