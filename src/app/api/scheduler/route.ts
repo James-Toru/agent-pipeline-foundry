@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { processDueTriggers, calculateNextRun } from "@/lib/scheduler";
 import { checkRateLimit, SCHEDULER_LIMIT } from "@/lib/rate-limiter";
 
@@ -24,7 +24,7 @@ export async function GET() {
       );
     }
 
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
     const processed = await processDueTriggers(supabase);
 
     return NextResponse.json(
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
 
     // Verify pipeline exists
     const { data: pipeline } = await supabase

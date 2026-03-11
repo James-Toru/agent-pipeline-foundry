@@ -11,10 +11,23 @@ const PUBLIC_PATHS = [
   "/api/integrations/slack/interactions",
 ];
 
+// Routes called by external services (VPS relay, webhooks) — protected by
+// their own secret-based auth, not browser sessions.
+const PUBLIC_API_PATTERNS = [
+  /^\/api\/pipelines\/[^/]+\/execute$/,  // VPS relay callback
+  /^\/api\/webhooks\//,                   // external webhook triggers
+  /^\/api\/scheduler$/,                   // cron-triggered scheduler
+  /^\/api\/system\//,                     // system cron routes (weekly report)
+];
+
 function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(p + "/")
-  );
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    return true;
+  }
+  if (PUBLIC_API_PATTERNS.some((re) => re.test(pathname))) {
+    return true;
+  }
+  return false;
 }
 
 export async function middleware(request: NextRequest) {

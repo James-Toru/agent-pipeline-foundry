@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 export interface ErrorAlert {
   run_id: string;
@@ -14,7 +14,7 @@ export interface ErrorAlert {
  */
 export async function sendErrorAlert(alert: ErrorAlert): Promise<void> {
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
 
     await supabase.from("agent_messages").insert({
       run_id: alert.run_id,

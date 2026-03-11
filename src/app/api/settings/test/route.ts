@@ -128,12 +128,12 @@ export async function POST(request: NextRequest) {
       }
 
       case "vps": {
-        const vpsUrl = process.env.VPS_EXECUTION_URL;
+        const vpsUrl = process.env.VPS_RELAY_URL;
         if (!vpsUrl) {
           return NextResponse.json(
             {
               success: false,
-              error: "VPS_EXECUTION_URL not configured. Pipelines run locally.",
+              error: "VPS_RELAY_URL not configured. Pipelines run locally.",
             },
             { status: 200 }
           );

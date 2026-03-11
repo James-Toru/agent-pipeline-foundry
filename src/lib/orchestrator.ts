@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
 import { resolveModel, getModelPricing } from "@/lib/models";
 import { getToolsForAgent } from "@/lib/tool-registry";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { MCPClientManager, INTERNAL_TOOLS } from "@/lib/mcp-client-manager";
 import { isGoogleConfigured } from "@/lib/google-auth";
 import { isHubSpotConfigured } from "@/lib/hubspot-auth";
@@ -81,7 +81,7 @@ async function updateRunStatus(
   status: PipelineRunStatus,
   completed_at?: string
 ) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   const update: Record<string, unknown> = { status };
   if (completed_at) update.completed_at = completed_at;
   await supabase.from("pipeline_runs").update(update).eq("id", run_id);
@@ -93,7 +93,7 @@ async function createAgentMessage(
   status: AgentMessageStatus,
   input: Record<string, unknown> | null
 ) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   const { data } = await supabase
     .from("agent_messages")
     .insert({
@@ -117,7 +117,7 @@ async function updateAgentMessage(
     completed_at?: string;
   }
 ) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   await supabase.from("agent_messages").update(update).eq("id", message_id);
 }
 
@@ -127,7 +127,7 @@ async function createApprovalRequest(
   message: string,
   context: Record<string, unknown>
 ) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   const { data } = await supabase
     .from("approval_requests")
     .insert({
@@ -147,7 +147,7 @@ async function waitForApproval(
   timeout_seconds: number
 ): Promise<"approved" | "rejected" | "timeout"> {
   const deadline = Date.now() + timeout_seconds * 1000;
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
 
   while (Date.now() < deadline) {
     const { data } = await supabase
@@ -171,7 +171,7 @@ async function recordTokenUsage(
   agent_id: string,
   usage: TokenUsageRecord
 ) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   await supabase.from("token_usage").insert({
     run_id,
     agent_id,
@@ -188,7 +188,7 @@ async function updateRunAnalytics(
   total_cost_usd: number,
   duration_ms: number
 ) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   await supabase
     .from("pipeline_runs")
     .update({ total_tokens, total_cost_usd, duration_ms })
@@ -201,7 +201,7 @@ async function failRun(
   run_id: string,
   error: PipelineError
 ): Promise<void> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   await supabase
     .from("pipeline_runs")
     .update({
@@ -240,7 +240,7 @@ async function handleInternalTool(
     }
 
     case "pipeline_notify": {
-      const supabase = await createSupabaseServerClient();
+      const supabase = await createSupabaseServiceClient();
       await supabase.from("agent_messages").insert({
         run_id: ctx.run_id,
         agent_id: "system_notification",
@@ -261,7 +261,7 @@ async function handleInternalTool(
     }
 
     case "schedule_trigger": {
-      const supabase = await createSupabaseServerClient();
+      const supabase = await createSupabaseServiceClient();
       await supabase.from("pipeline_scheduled_triggers").insert({
         pipeline_id: input.pipeline_id,
         cron_expression: (input.cron as string) ?? "0 * * * *",
@@ -276,7 +276,7 @@ async function handleInternalTool(
     }
 
     case "supabase_read": {
-      const supabase = await createSupabaseServerClient();
+      const supabase = await createSupabaseServiceClient();
       const table = input.table as string;
       let query = supabase
         .from(table)
@@ -306,7 +306,7 @@ async function handleInternalTool(
     }
 
     case "supabase_write": {
-      const supabase = await createSupabaseServerClient();
+      const supabase = await createSupabaseServiceClient();
       const table = input.table as string;
       const action = input.action as string;
       const data = input.data as Record<string, unknown>;
@@ -844,7 +844,7 @@ async function executeAgent(
     });
 
     // Write structured error fields separately (new columns)
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
     await supabase
       .from("agent_messages")
       .update({
@@ -895,7 +895,7 @@ async function handleApprovalGate(
     );
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
   await supabase
     .from("agent_messages")
     .update({ status: "awaiting_approval" })
@@ -1113,7 +1113,7 @@ export async function runPipeline(
   let runTotalTokens = 0;
   let runTotalCost = 0;
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
 
   try {
     await updateRunStatus(run_id, "running");
@@ -1224,7 +1224,7 @@ export async function runPipeline(
         : PipelineErrors.unknownError(errorMsg);
 
     // Only update if not already failed by failRun()
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
     const { data: currentRun } = await supabase
       .from("pipeline_runs")
       .select("status")

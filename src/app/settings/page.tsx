@@ -1935,14 +1935,13 @@ function ModelConfiguration({ currentModel }: { currentModel: string }) {
 // ── VPS Executor Status ─────────────────────────────────────────────────────
 
 function VpsStatus() {
-  const [status, setStatus] = useState<{
-    checking: boolean;
-    success: boolean | null;
-    message: string;
-  }>({ checking: false, success: null, message: "" });
+  const [isOpen, setIsOpen] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   async function checkVps() {
-    setStatus({ checking: true, success: null, message: "" });
+    setIsTesting(true);
+    setTestResult(null);
     try {
       const res = await fetch("/api/settings/test", {
         method: "POST",
@@ -1950,53 +1949,105 @@ function VpsStatus() {
         body: JSON.stringify({ integration: "vps" }),
       });
       const data = await res.json();
-      setStatus({ checking: false, success: data.success, message: data.message || data.error });
+      setTestResult({ success: data.success, message: data.message || data.error });
     } catch {
-      setStatus({ checking: false, success: false, message: "Failed to check VPS status" });
+      setTestResult({ success: false, message: "Failed to check VPS status" });
+    } finally {
+      setIsTesting(false);
     }
   }
 
   return (
-    <div className="mb-8">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg ring-1 bg-emerald-500/10 ring-emerald-500/20">
-          <Globe className="size-4 text-emerald-400" />
+    <Card>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex w-full items-center justify-between px-5 py-4 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg ring-1 bg-emerald-500/10 ring-emerald-500/20">
+            <Globe className="size-4 text-emerald-400" />
+          </div>
+          <div>
+            <span className="text-sm font-medium text-white">
+              VPS Pipeline Executor
+            </span>
+            <p className="text-xs text-zinc-500">
+              Offloads pipeline execution to a VPS with no timeout limits.
+            </p>
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-medium text-white">VPS Pipeline Executor</h2>
-          <p className="text-xs text-zinc-500">
-            Offloads pipeline execution to a VPS with no timeout limits.
-          </p>
-        </div>
-        <button
-          onClick={checkVps}
-          disabled={status.checking}
-          className="flex items-center gap-1.5 rounded-lg ring-1 ring-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:text-white hover:ring-white/20 transition-all disabled:opacity-50"
-        >
-          {status.checking ? (
-            <Loader2 className="size-3 animate-spin" />
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-xs">
+            {testResult?.success ? (
+              <>
+                <CheckCircle2 className="size-3.5 text-emerald-400" />
+                <span className="text-emerald-400">Connected</span>
+              </>
+            ) : (
+              <>
+                <Circle className="size-3.5 text-zinc-600" />
+                <span className="text-zinc-500">Server-side</span>
+              </>
+            )}
+          </span>
+          {isOpen ? (
+            <ChevronUp className="size-4 text-zinc-600" />
           ) : (
-            <TestTube className="size-3" />
+            <ChevronDown className="size-4 text-zinc-600" />
           )}
-          Test Connection
-        </button>
-      </div>
+        </div>
+      </button>
 
-      {status.success !== null && (
-        <div className={`flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
-          status.success
-            ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-            : "ring-amber-500/20 bg-amber-500/10 text-amber-400"
-        }`}>
-          {status.success ? (
-            <CheckCircle2 className="size-3.5 mt-0.5 shrink-0" />
-          ) : (
-            <Info className="size-3.5 mt-0.5 shrink-0" />
+      {isOpen && (
+        <div className="border-t border-white/6 px-5 py-4 space-y-3">
+          <div className="flex items-start gap-2 rounded-xl ring-1 ring-zinc-700/50 bg-zinc-800/40 px-3 py-2.5 text-xs text-zinc-400">
+            <Info className="size-3.5 mt-0.5 shrink-0 text-zinc-500" />
+            <span>
+              VPS credentials (<code className="text-zinc-300">VPS_RELAY_URL</code>,{" "}
+              <code className="text-zinc-300">VPS_SHARED_SECRET</code>,{" "}
+              <code className="text-zinc-300">VPS_EXECUTE_SECRET</code>) are configured
+              server-side in environment variables. When not set, pipelines run locally
+              on the Vercel serverless function.
+            </span>
+          </div>
+
+          {testResult && (
+            <div className={`flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
+              testResult.success
+                ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : "ring-red-500/20 bg-red-500/10 text-red-400"
+            }`}>
+              {testResult.success ? (
+                <CheckCircle2 className="size-3 mt-0.5 shrink-0" />
+              ) : (
+                <AlertCircle className="size-3 mt-0.5 shrink-0" />
+              )}
+              {testResult.message}
+            </div>
           )}
-          <span>{status.message}</span>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={checkVps}
+              disabled={isTesting}
+              className="flex items-center gap-1.5 rounded-xl ring-1 ring-white/10 hover:ring-white/20 bg-zinc-800/80 hover:bg-zinc-700/80 px-4 py-2 text-sm font-medium text-zinc-300 transition-all duration-200 disabled:opacity-40"
+            >
+              {isTesting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <Zap className="size-3.5" />
+                  Test Connection
+                </>
+              )}
+            </button>
+          </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -2056,9 +2107,9 @@ export default function SettingsPage() {
               }
             />
           ))}
+          <VpsStatus />
         </div>
 
-        <VpsStatus />
         <CustomIntegrations />
         <TeamManagement />
       </div>

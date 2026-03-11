@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { runPipeline } from "@/lib/orchestrator";
 import { checkRateLimit, WEBHOOK_LIMIT } from "@/lib/rate-limiter";
 
@@ -26,7 +26,7 @@ export async function POST(
       );
     }
 
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
 
     // Fetch the pipeline
     const { data: pipeline, error: pipelineError } = await supabase
@@ -82,8 +82,9 @@ export async function POST(
     }
 
     const vpsRelayUrl = process.env.VPS_RELAY_URL;
+    const isDev = process.env.NODE_ENV === "development";
 
-    if (vpsRelayUrl) {
+    if (vpsRelayUrl && !isDev) {
       // Fire job to VPS relay — do not await the fetch
       fetch(`${vpsRelayUrl}/relay`, {
         method: "POST",
@@ -111,7 +112,7 @@ export async function POST(
     // Fallback: no VPS configured — run locally (fire-and-forget)
     runPipeline(run.id, pipeline.spec, webhookBody).catch((err) => {
       console.error(`[Webhook] Pipeline run ${run.id} failed:`, err);
-      createSupabaseServerClient().then((sb) =>
+      createSupabaseServiceClient().then((sb) =>
         sb
           .from("pipeline_runs")
           .update({

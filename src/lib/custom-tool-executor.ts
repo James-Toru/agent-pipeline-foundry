@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import type {
   CustomIntegration,
   CustomTool,
@@ -21,7 +21,7 @@ export async function getCustomTools(): Promise<
     return cachedTools;
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServiceClient();
 
   const { data: integrations, error: intErr } = await supabase
     .from("custom_integrations")
@@ -188,7 +188,7 @@ async function refreshOAuth2Token(
     const newToken = data.access_token as string;
 
     // Persist the new token
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
     const updatedConfig = { ...config, access_token: newToken };
     if (data.refresh_token) {
       updatedConfig.refresh_token = data.refresh_token;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { createWeeklySummarySpec } from "@/lib/weekly-report-pipeline";
 import { runPipeline } from "@/lib/orchestrator";
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const spec = createWeeklySummarySpec(weekStart);
 
     // Save the pipeline spec
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
     const { data: pipeline, error: pipelineError } = await supabase
       .from("pipelines")
       .insert({

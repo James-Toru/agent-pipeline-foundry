@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { runPipeline } from "@/lib/orchestrator";
 
 export const maxDuration = 300;
@@ -17,6 +17,8 @@ export async function POST(
   const { id: pipelineId } = await params;
   const { runId, inputs, triggerType, webhookPayload } = await request.json();
 
+  console.log(`[Execute] Received callback for pipeline=${pipelineId} run=${runId} trigger=${triggerType ?? "manual"}`);
+
   if (!runId) {
     return NextResponse.json(
       { error: "runId is required" },
@@ -25,7 +27,7 @@ export async function POST(
   }
 
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseServiceClient();
 
     const { data: pipeline } = await supabase
       .from("pipelines")
@@ -47,13 +49,14 @@ export async function POST(
 
     await runPipeline(runId, pipeline.spec, resolvedInputs);
 
+    console.log(`[Execute] Pipeline completed for run=${runId}`);
     return NextResponse.json({ success: true, runId });
   } catch (err) {
     console.error("[Execute] Pipeline failed:", err);
 
     // Safety net: mark run as failed if orchestrator didn't already
     try {
-      const supabase = await createSupabaseServerClient();
+      const supabase = await createSupabaseServiceClient();
       const { data } = await supabase
         .from("pipeline_runs")
         .select("status")

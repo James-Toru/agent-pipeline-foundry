@@ -83,9 +83,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const vpsRelayUrl = process.env.VPS_RELAY_URL;
+    // Clean up stale runs stuck in "pending" for over 10 minutes
+    supabase
+      .from("pipeline_runs")
+      .update({
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        error_code: "STALE_RUN",
+        error_message: "Run was stuck in pending state for over 10 minutes",
+        error_user_message:
+          "This run timed out before execution started. This usually means the VPS relay was unreachable.",
+        error_action: "Check VPS connectivity in Settings and try again.",
+      })
+      .eq("pipeline_id", pipeline_id)
+      .eq("status", "pending")
+      .lt("started_at", new Date(Date.now() - 10 * 60 * 1000).toISOString())
+      .neq("id", run.id)
+      .then(() => {});
 
-    if (vpsRelayUrl) {
+    const vpsRelayUrl = process.env.VPS_RELAY_URL;
+    const isDev = process.env.NODE_ENV === "development";
+
+    if (vpsRelayUrl && !isDev) {
       // Fire job to VPS relay — do not await the fetch
       fetch(`${vpsRelayUrl}/relay`, {
         method: "POST",
