@@ -127,6 +127,49 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      case "vps": {
+        const vpsUrl = process.env.VPS_EXECUTION_URL;
+        if (!vpsUrl) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "VPS_EXECUTION_URL not configured. Pipelines run locally.",
+            },
+            { status: 200 }
+          );
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+          const res = await fetch(`${vpsUrl}/health`, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (!res.ok) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `VPS returned ${res.status}: ${res.statusText}`,
+              },
+              { status: 200 }
+            );
+          }
+          const data = await res.json();
+          return NextResponse.json({
+            success: true,
+            message: `VPS connected — uptime ${Math.round(data.uptime ?? 0)}s`,
+          });
+        } catch (fetchErr) {
+          clearTimeout(timeout);
+          const msg =
+            fetchErr instanceof Error ? fetchErr.message : "VPS unreachable";
+          return NextResponse.json(
+            { success: false, error: msg },
+            { status: 200 }
+          );
+        }
+      }
+
       default:
         return NextResponse.json(
           { success: false, error: `Unknown integration: ${integration}` },

@@ -4,6 +4,8 @@ import { runPipeline } from "@/lib/orchestrator";
 import { checkRateLimit, RUN_LIMIT } from "@/lib/rate-limiter";
 import { checkRequiredIntegrations } from "@/lib/pipeline-errors";
 
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   try {
     const rl = checkRateLimit("runs", RUN_LIMIT);
@@ -81,12 +83,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Start the pipeline execution asynchronously (fire-and-forget)
-    // The orchestrator writes status updates to Supabase for Realtime
+    const vpsRelayUrl = process.env.VPS_RELAY_URL;
+
+    if (vpsRelayUrl) {
+      // Fire job to VPS relay — do not await the fetch
+      fetch(`${vpsRelayUrl}/relay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-shared-secret": process.env.VPS_SHARED_SECRET!,
+        },
+        body: JSON.stringify({
+          pipelineId: pipeline_id,
+          runId: run.id,
+          inputs: input_data ?? {},
+          triggerType: "manual",
+        }),
+      }).catch((err) => {
+        console.error("[Run] Failed to reach VPS relay:", err);
+      });
+
+      // Return immediately — VPS will call /execute to run the pipeline
+      return NextResponse.json(
+        { run, status: "started" },
+        { status: 202 }
+      );
+    }
+
+    // Fallback: no VPS configured — run locally (fire-and-forget)
     runPipeline(run.id, pipeline.spec, input_data ?? {}).catch((err) => {
       console.error(`Pipeline run ${run.id} failed:`, err);
-      // Orchestrator's own catch should have written structured errors already.
-      // This is a safety net for unexpected crashes only.
       createSupabaseServerClient().then((sb) =>
         sb
           .from("pipeline_runs")
@@ -95,15 +121,18 @@ export async function POST(request: NextRequest) {
           .single()
           .then(({ data }) => {
             if (data?.status !== "failed") {
-              const errorMsg = err instanceof Error ? err.message : String(err);
+              const errorMsg =
+                err instanceof Error ? err.message : String(err);
               sb.from("pipeline_runs")
                 .update({
                   status: "failed",
                   completed_at: new Date().toISOString(),
                   error_code: "UNKNOWN_ERROR",
                   error_message: errorMsg,
-                  error_user_message: "An unexpected error occurred during this pipeline run.",
-                  error_action: "Check the error details below. If the problem persists contact support with the run ID.",
+                  error_user_message:
+                    "An unexpected error occurred during this pipeline run.",
+                  error_action:
+                    "Check the error details below. If the problem persists contact support with the run ID.",
                 })
                 .eq("id", run.id)
                 .then(() => {});

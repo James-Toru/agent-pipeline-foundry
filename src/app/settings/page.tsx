@@ -1932,6 +1932,74 @@ function ModelConfiguration({ currentModel }: { currentModel: string }) {
   );
 }
 
+// ── VPS Executor Status ─────────────────────────────────────────────────────
+
+function VpsStatus() {
+  const [status, setStatus] = useState<{
+    checking: boolean;
+    success: boolean | null;
+    message: string;
+  }>({ checking: false, success: null, message: "" });
+
+  async function checkVps() {
+    setStatus({ checking: true, success: null, message: "" });
+    try {
+      const res = await fetch("/api/settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ integration: "vps" }),
+      });
+      const data = await res.json();
+      setStatus({ checking: false, success: data.success, message: data.message || data.error });
+    } catch {
+      setStatus({ checking: false, success: false, message: "Failed to check VPS status" });
+    }
+  }
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg ring-1 bg-emerald-500/10 ring-emerald-500/20">
+          <Globe className="size-4 text-emerald-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-medium text-white">VPS Pipeline Executor</h2>
+          <p className="text-xs text-zinc-500">
+            Offloads pipeline execution to a VPS with no timeout limits.
+          </p>
+        </div>
+        <button
+          onClick={checkVps}
+          disabled={status.checking}
+          className="flex items-center gap-1.5 rounded-lg ring-1 ring-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:text-white hover:ring-white/20 transition-all disabled:opacity-50"
+        >
+          {status.checking ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <TestTube className="size-3" />
+          )}
+          Test Connection
+        </button>
+      </div>
+
+      {status.success !== null && (
+        <div className={`flex items-start gap-2 rounded-xl ring-1 px-3 py-2 text-xs ${
+          status.success
+            ? "ring-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+            : "ring-amber-500/20 bg-amber-500/10 text-amber-400"
+        }`}>
+          {status.success ? (
+            <CheckCircle2 className="size-3.5 mt-0.5 shrink-0" />
+          ) : (
+            <Info className="size-3.5 mt-0.5 shrink-0" />
+          )}
+          <span>{status.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<(IntegrationStatus & { default_model?: string }) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1990,6 +2058,7 @@ export default function SettingsPage() {
           ))}
         </div>
 
+        <VpsStatus />
         <CustomIntegrations />
         <TeamManagement />
       </div>

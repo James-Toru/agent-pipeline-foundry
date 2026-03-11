@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { runPipeline } from "@/lib/orchestrator";
 import { checkRateLimit, WEBHOOK_LIMIT } from "@/lib/rate-limiter";
 
+export const maxDuration = 30;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ pipeline_id: string }> }
@@ -53,9 +55,9 @@ export async function POST(
     }
 
     // Parse input data from request body
-    let input_data: Record<string, unknown> = {};
+    let webhookBody: Record<string, unknown> = {};
     try {
-      input_data = await request.json();
+      webhookBody = await request.json();
     } catch {
       // Empty body is acceptable — pipeline may not require inputs
     }
@@ -66,7 +68,7 @@ export async function POST(
       .insert({
         pipeline_id,
         status: "pending",
-        input_data,
+        input_data: webhookBody,
         started_at: new Date().toISOString(),
       })
       .select()
@@ -79,8 +81,35 @@ export async function POST(
       );
     }
 
-    // Start pipeline execution in background
-    runPipeline(run.id, pipeline.spec, input_data).catch((err) => {
+    const vpsRelayUrl = process.env.VPS_RELAY_URL;
+
+    if (vpsRelayUrl) {
+      // Fire job to VPS relay — do not await the fetch
+      fetch(`${vpsRelayUrl}/relay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-shared-secret": process.env.VPS_SHARED_SECRET!,
+        },
+        body: JSON.stringify({
+          pipelineId: pipeline_id,
+          runId: run.id,
+          inputs: {},
+          triggerType: "webhook",
+          webhookPayload: webhookBody,
+        }),
+      }).catch((err) => {
+        console.error("[Webhook] Failed to reach VPS relay:", err);
+      });
+
+      return NextResponse.json(
+        { received: true, run_id: run.id },
+        { status: 200 }
+      );
+    }
+
+    // Fallback: no VPS configured — run locally (fire-and-forget)
+    runPipeline(run.id, pipeline.spec, webhookBody).catch((err) => {
       console.error(`[Webhook] Pipeline run ${run.id} failed:`, err);
       createSupabaseServerClient().then((sb) =>
         sb
