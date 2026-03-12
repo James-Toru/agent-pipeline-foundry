@@ -98,6 +98,19 @@ export default function PipelinesPage() {
   const [deletingPipeline, setDeletingPipeline] = useState<PipelineRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  const filtered = pipelines.filter(
+    (p) =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.description?.toLowerCase().includes(search.toLowerCase())
+  );
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const start = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, filtered.length);
 
   useEffect(() => {
     async function fetchPipelines() {
@@ -167,6 +180,21 @@ export default function PipelinesPage() {
           }
         />
 
+        {!isLoading && pipelines.length > 0 && (
+          <div className="mb-6">
+            <input
+              type="text"
+              placeholder="Search pipelines..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors"
+            />
+          </div>
+        )}
+
         {isLoading && (
           <div className="grid gap-4 sm:grid-cols-2">
             {[1, 2, 3, 4].map((i) => (
@@ -208,17 +236,49 @@ export default function PipelinesPage() {
           />
         )}
 
-        {!isLoading && pipelines.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {pipelines.map((p) => (
-              <PipelineCard
-                key={p.id}
-                pipeline={p}
-                onDuplicate={handleDuplicate}
-                onDelete={setDeletingPipeline}
-              />
-            ))}
+        {!isLoading && pipelines.length > 0 && filtered.length === 0 && search && (
+          <div className="text-center py-12">
+            <p className="text-sm text-zinc-500">No pipelines match your search.</p>
           </div>
+        )}
+
+        {!isLoading && paginated.length > 0 && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {paginated.map((p) => (
+                <PipelineCard
+                  key={p.id}
+                  pipeline={p}
+                  onDuplicate={handleDuplicate}
+                  onDelete={setDeletingPipeline}
+                />
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-zinc-800">
+                <span className="text-sm text-zinc-500">
+                  Showing {start}&ndash;{end} of {filtered.length}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPage((p) => p - 1)}
+                    disabled={page === 1}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-zinc-700 text-zinc-400 disabled:opacity-30 disabled:cursor-not-allowed hover:border-zinc-500 transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={page === totalPages}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-zinc-700 text-zinc-400 disabled:opacity-30 disabled:cursor-not-allowed hover:border-zinc-500 transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

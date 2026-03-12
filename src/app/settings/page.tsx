@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton-card";
@@ -375,6 +376,7 @@ interface TeamMember {
   email: string;
   role: "admin" | "member";
   created_at: string;
+  last_sign_in_at: string | null;
 }
 
 function generatePassword(length = 16): string {
@@ -394,6 +396,7 @@ function TeamManagement() {
   const [inviting, setInviting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userSearch, setUserSearch] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -401,10 +404,10 @@ function TeamManagement() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) setCurrentUserId(user.id);
 
-      const res = await fetch("/api/team");
+      const res = await fetch("/api/team/members");
       if (res.ok) {
         const data = await res.json();
-        setMembers(data);
+        setMembers(data.users ?? []);
         setIsAdmin(true);
       }
       setLoading(false);
@@ -425,7 +428,7 @@ function TeamManagement() {
 
     const data = await res.json();
     if (res.ok) {
-      setMembers((prev) => [...prev, { ...data, created_at: new Date().toISOString() }]);
+      setMembers((prev) => [...prev, { ...data, created_at: new Date().toISOString(), last_sign_in_at: null }]);
       setInviteEmail("");
       setInvitePassword("");
       setInviteRole("member");
@@ -457,51 +460,92 @@ function TeamManagement() {
   if (loading) return <SkeletonCard className="h-32" />;
   if (!isAdmin) return null;
 
+  const filteredMembers = members.filter((m) =>
+    m.email.toLowerCase().includes(userSearch.toLowerCase())
+  );
+
   return (
-    <div className="mt-10">
-      <PageHeader
-        icon={<Users className="size-4" />}
-        title="Team Members"
-        description="Manage who has access to Agent Foundry."
+    <div>
+      {/* Search */}
+      <input
+        placeholder="Search users..."
+        value={userSearch}
+        onChange={(e) => setUserSearch(e.target.value)}
+        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors mb-4"
       />
 
-      <Card className="divide-y divide-white/6">
-        {/* Member list */}
-        <div className="px-5 py-4 space-y-3">
-          {members.map((m) => (
-            <div key={m.id} className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 ring-1 ring-white/10 text-xs font-semibold text-zinc-300">
-                  {m.email.slice(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <p className="text-sm text-white">{m.email}</p>
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                    {m.role === "admin" ? (
-                      <Shield className="size-3 text-amber-400" />
-                    ) : (
-                      <User className="size-3" />
-                    )}
-                    {m.role}
-                    {m.id === currentUserId && (
-                      <span className="text-zinc-600">(you)</span>
-                    )}
+      {/* Users table */}
+      <Card className="overflow-hidden mb-6">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-zinc-800">
+              <th className="text-left py-3 px-4 text-xs text-zinc-500 uppercase tracking-wide font-medium">
+                User
+              </th>
+              <th className="text-left py-3 px-4 text-xs text-zinc-500 uppercase tracking-wide font-medium">
+                Role
+              </th>
+              <th className="text-left py-3 px-4 text-xs text-zinc-500 uppercase tracking-wide font-medium">
+                Last Active
+              </th>
+              <th className="py-3 px-4"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredMembers.map((user) => (
+              <tr
+                key={user.id}
+                className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors"
+              >
+                <td className="py-3 px-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600/20 border border-emerald-600/30 flex items-center justify-center text-sm text-emerald-400 font-medium">
+                      {user.email[0].toUpperCase()}
+                    </div>
+                    <span className="text-sm text-white">
+                      {user.email}
+                      {user.id === currentUserId && (
+                        <span className="ml-1.5 text-xs text-zinc-600">(you)</span>
+                      )}
+                    </span>
                   </div>
-                </div>
-              </div>
-              {m.id !== currentUserId && (
-                <button
-                  onClick={() => handleRemove(m.id, m.email)}
-                  className="rounded-lg p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+                </td>
+                <td className="py-3 px-4">
+                  <span
+                    className={`text-xs font-medium px-2 py-1 rounded-full ${
+                      user.role === "admin"
+                        ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                        : "bg-zinc-700 text-zinc-400 border border-zinc-600"
+                    }`}
+                  >
+                    {user.role}
+                  </span>
+                </td>
+                <td className="py-3 px-4 text-sm text-zinc-400">
+                  {user.last_sign_in_at
+                    ? formatDistanceToNow(new Date(user.last_sign_in_at), {
+                        addSuffix: true,
+                      })
+                    : "Never"}
+                </td>
+                <td className="py-3 px-4 text-right">
+                  {user.role !== "admin" && user.id !== currentUserId && (
+                    <button
+                      onClick={() => handleRemove(user.id, user.email)}
+                      className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
 
-        {/* Invite form */}
+      {/* Invite form */}
+      <Card>
         <form onSubmit={handleInvite} className="px-5 py-4 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Invite new member
@@ -2051,9 +2095,19 @@ function VpsStatus() {
   );
 }
 
+type SettingsTab = "general" | "integrations" | "team";
+
+const TABS: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
+  { id: "general", label: "General", icon: Settings2 },
+  { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "team", label: "Team Members", icon: Users },
+];
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<(IntegrationStatus & { default_model?: string }) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     async function fetchStatus() {
@@ -2069,7 +2123,12 @@ export default function SettingsPage() {
         setIsLoading(false);
       }
     }
+    async function checkAdmin() {
+      const res = await fetch("/api/team/members");
+      if (res.ok) setIsAdmin(true);
+    }
     fetchStatus();
+    checkAdmin();
   }, []);
 
   if (isLoading) {
@@ -2094,24 +2153,53 @@ export default function SettingsPage() {
           description="Configure models, integrations, and team access."
         />
 
-        <ModelConfiguration currentModel={status?.default_model ?? "claude-sonnet-4-5-20250929"} />
-
-        <h3 className="text-sm font-medium text-zinc-400 mb-3">Integrations</h3>
-        <div className="space-y-3">
-          {INTEGRATIONS.map((config) => (
-            <IntegrationCard
-              key={config.id}
-              config={config}
-              configured={
-                status?.[config.id as keyof IntegrationStatus]?.configured ?? false
-              }
-            />
-          ))}
-          <VpsStatus />
+        {/* Tab navigation */}
+        <div className="flex gap-1 border-b border-zinc-800 mb-8">
+          {TABS.filter((tab) => tab.id !== "team" || isAdmin).map((tab) => {
+            const TabIcon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all border-b-2 -mb-px ${
+                  activeTab === tab.id
+                    ? "border-emerald-500 text-emerald-400"
+                    : "border-transparent text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <TabIcon className="size-4" />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        <CustomIntegrations />
-        <TeamManagement />
+        {/* General tab */}
+        {activeTab === "general" && (
+          <ModelConfiguration currentModel={status?.default_model ?? "claude-sonnet-4-5-20250929"} />
+        )}
+
+        {/* Integrations tab */}
+        {activeTab === "integrations" && (
+          <>
+            <div className="space-y-3">
+              {INTEGRATIONS.map((config) => (
+                <IntegrationCard
+                  key={config.id}
+                  config={config}
+                  configured={
+                    status?.[config.id as keyof IntegrationStatus]?.configured ?? false
+                  }
+                />
+              ))}
+              <VpsStatus />
+            </div>
+            <CustomIntegrations />
+          </>
+        )}
+
+        {/* Team Members tab */}
+        {activeTab === "team" && <TeamManagement />}
       </div>
     </div>
   );
