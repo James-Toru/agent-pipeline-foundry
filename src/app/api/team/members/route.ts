@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getUserRole } from "@/lib/supabase-auth";
 
 export async function GET() {
@@ -9,18 +8,16 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const supabase = await createSupabaseServerClient();
-
-  const { data: profiles } = await supabase
-    .from("user_profiles")
-    .select("id, email, role, created_at")
-    .order("created_at", { ascending: true });
-
-  // Use service role client for auth admin access
+  // Use service role client to bypass RLS on user_profiles
   const serviceClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+
+  const { data: profiles } = await serviceClient
+    .from("user_profiles")
+    .select("id, email, role, created_at")
+    .order("created_at", { ascending: true });
 
   const { data: authUsers } = await serviceClient.auth.admin.listUsers();
 
