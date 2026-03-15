@@ -1,4 +1,5 @@
 import type { ToolId } from "@/types/pipeline";
+import { EXECUTE_CODE_TOOL_DEFINITION } from "@/lib/tools/execute-code";
 
 // ── Anthropic Tool Format ────────────────────────────────────────────────────
 
@@ -804,6 +805,9 @@ export const TOOL_REGISTRY: Record<ToolId, AnthropicTool> = {
       required: ["database_id", "contact_name"],
     },
   },
+
+  // Code Execution
+  execute_code: EXECUTE_CODE_TOOL_DEFINITION,
 
   // Utility
   human_approval_request: {

@@ -12,12 +12,13 @@ import "dotenv/config";
 import express from "express";
 import { loadSettingsIntoEnv } from "@/lib/settings-manager";
 import { runPipeline } from "@/lib/orchestrator";
+import { executeCode } from "@/lib/docker-executor";
 import type { PipelineSpec } from "@/types/pipeline";
 
 const app = express();
 app.use(express.json({ limit: "5mb" }));
 
-const PORT = parseInt(process.env.PORT ?? "3001", 10);
+const PORT = parseInt(process.env.PORT ?? "4000", 10);
 const SHARED_SECRET = process.env.VPS_SHARED_SECRET;
 
 // ── Auth Middleware ──────────────────────────────────────────────────────────
@@ -110,6 +111,47 @@ app.post("/execute", authenticate, (req, res) => {
       console.error("[VPS] Failed to update run status after error:", cleanupErr);
     }
   });
+});
+
+// ── Execute Code in Docker Sandbox ──────────────────────────────────────────
+
+app.post("/execute-code", authenticate, async (req, res) => {
+  const { runId, executionId, language, code, timeoutSeconds, needsNetwork } =
+    req.body as {
+      runId: string;
+      executionId?: string;
+      language: string;
+      code: string;
+      timeoutSeconds?: number;
+      needsNetwork?: boolean;
+    };
+
+  if (!runId || !language || !code) {
+    res.status(400).json({
+      error: "runId, language, and code are required",
+    });
+    return;
+  }
+
+  console.log(
+    `[VPS] Executing ${language} code for run ${runId} (${code.length} chars)`
+  );
+
+  const result = await executeCode({
+    runId,
+    executionId: executionId ?? Date.now().toString(),
+    language,
+    code,
+    timeoutSeconds: timeoutSeconds ?? 120,
+    needsNetwork: needsNetwork ?? false,
+  });
+
+  console.log(
+    `[VPS] Code execution ${result.success ? "succeeded" : "failed"} ` +
+      `(${result.duration_ms}ms, exit ${result.exit_code}, ${result.files.length} files)`
+  );
+
+  res.json(result);
 });
 
 // ── Start Server ────────────────────────────────────────────────────────────

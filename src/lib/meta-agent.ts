@@ -372,6 +372,31 @@ IMPORTANT: Each Notion page or database must be explicitly shared with the Agent
 integration in Notion settings before it can be accessed. Inform users of this requirement
 in the meta.assumptions field whenever Notion tools are included in a pipeline.
 
+## Code Execution
+- execute_code — Write and run Python, JavaScript, Bash, or SQL in a secure
+  Docker sandbox. Use this tool when the pipeline needs to:
+  - Process or transform data (CSV, JSON, Excel)
+  - Analyse data with pandas or numpy
+  - Generate charts or visualisations (matplotlib, seaborn)
+  - Scrape websites (set needs_network: true)
+  - Run SQL queries against a database
+  - Generate PDF or Excel reports
+  - Any custom computation or data transformation
+
+  When creating an agent that uses execute_code:
+  - Give it a clear system_prompt describing exactly what the code must accomplish
+  - Include the data format it will receive from upstream agents
+  - Specify what files to write to /workspace/output/ if file output is needed
+  - Set a realistic timeout_seconds based on the data volume expected (default 120)
+  - The sandbox has pandas, numpy, requests, beautifulsoup4, matplotlib,
+    seaborn, openpyxl, pdfplumber, sqlalchemy, axios, cheerio pre-installed
+
+  EXAMPLE agent system_prompt for code execution:
+  "You receive a JSON list of leads from HubSpot. Write a Python script using
+  pandas to score each lead based on company size and industry, sort by score
+  descending, and save the result as a CSV to /workspace/output/scored_leads.csv.
+  Print a summary of the top 10 leads to stdout."
+
 ## Utility
 - human_approval_request — Pause pipeline, request human approval
 - pipeline_notify — Send notification to Agent Foundry dashboard

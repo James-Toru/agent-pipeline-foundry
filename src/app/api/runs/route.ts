@@ -105,24 +105,23 @@ export async function POST(request: NextRequest) {
     const isDev = process.env.NODE_ENV === "development";
 
     if (vpsRelayUrl && !isDev) {
-      // Fire job to VPS relay — do not await the fetch
-      fetch(`${vpsRelayUrl}/relay`, {
+      // Fire job to VPS executor — do not await the fetch
+      fetch(`${vpsRelayUrl}/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-shared-secret": process.env.VPS_SHARED_SECRET!,
         },
         body: JSON.stringify({
-          pipelineId: pipeline_id,
-          runId: run.id,
-          inputs: input_data ?? {},
-          triggerType: "manual",
+          run_id: run.id,
+          spec: pipeline.spec,
+          input_data: input_data ?? {},
         }),
       }).catch((err) => {
-        console.error("[Run] Failed to reach VPS relay:", err);
+        console.error("[Run] Failed to reach VPS executor:", err);
       });
 
-      // Return immediately — VPS will call /execute to run the pipeline
+      // Return immediately — VPS runs the orchestrator directly
       return NextResponse.json(
         { run, status: "started" },
         { status: 202 }

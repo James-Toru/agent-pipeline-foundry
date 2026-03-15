@@ -40,6 +40,18 @@ if ! command -v pm2 &> /dev/null; then
   sudo npm install -g pm2
 fi
 
+# Build Docker sandbox image if Docker is available
+if command -v docker &> /dev/null; then
+  if [ -f Dockerfile.sandbox ]; then
+    echo "Building Docker sandbox image..."
+    docker build -f Dockerfile.sandbox -t agent-foundry-sandbox:latest .
+    echo "Docker sandbox image built successfully."
+  fi
+else
+  echo "Warning: Docker not installed — code execution will not work."
+  echo "  Install Docker: https://docs.docker.com/engine/install/"
+fi
+
 echo ""
 echo "=== Setup complete ==="
 echo ""

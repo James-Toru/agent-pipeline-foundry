@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+  nodejs npm curl wget jq \
+  postgresql-client \
+  && rm -rf /var/lib/apt/lists/*
+
+# Python libraries
+RUN pip install --no-cache-dir \
+  pandas numpy requests \
+  beautifulsoup4 playwright \
+  matplotlib seaborn \
+  openpyxl pdfplumber \
+  psycopg2-binary sqlalchemy \
+  lxml html5lib
+
+# JavaScript libraries
+RUN npm install -g \
+  axios cheerio csv-parse xlsx
+
+# Create non-root user for security
+RUN useradd -m -u 1000 sandbox
+USER sandbox
+WORKDIR /workspace
+
+CMD ["python3"]

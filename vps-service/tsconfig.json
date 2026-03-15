@@ -11,6 +11,7 @@
     "baseUrl": ".",
     "paths": {
       "@/lib/supabase-server": ["./src/lib/supabase-server"],
+      "@/lib/docker-executor": ["./src/lib/docker-executor"],
       "@/*": ["../src/*"]
     },
     "resolveJsonModule": true,

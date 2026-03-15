@@ -15,6 +15,7 @@ import {
   executeCustomTool,
   customToolToAnthropicFormat,
 } from "@/lib/custom-tool-executor";
+import { executeCodeTool } from "@/lib/tools/execute-code";
 import type { CustomTool, CustomIntegration } from "@/types/pipeline";
 import { sendErrorAlert, classifySeverity } from "@/lib/error-alerting";
 import {
@@ -364,12 +365,97 @@ async function handleInternalTool(
       return JSON.stringify({ status: "success", data: result.data });
     }
 
+    case "execute_code": {
+      const MAX_CODE_ATTEMPTS = 3;
+      let codeToRun = input.code as string;
+      let lastError = "";
+
+      for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+        if (attempt > 1) {
+          // Auto-debug: ask Claude to fix the code
+          codeToRun = await rewriteCodeAfterError(
+            codeToRun,
+            lastError
+          );
+          console.log(
+            `[Orchestrator] Code execution auto-debug attempt ${attempt}/${MAX_CODE_ATTEMPTS}`
+          );
+        }
+
+        const result = await executeCodeTool(
+          { ...input, code: codeToRun } as Parameters<typeof executeCodeTool>[0],
+          ctx.run_id,
+          attempt
+        );
+
+        const parsed = JSON.parse(result);
+
+        if (parsed.success) {
+          return result;
+        }
+
+        console.warn(
+          `[Orchestrator] Code execution attempt ${attempt}/${MAX_CODE_ATTEMPTS} failed:`,
+          parsed.stderr ?? parsed.error
+        );
+
+        lastError = parsed.stderr ?? parsed.error ?? "Unknown error";
+
+        if (attempt === MAX_CODE_ATTEMPTS) {
+          return JSON.stringify({
+            ...parsed,
+            error: `Code failed after ${MAX_CODE_ATTEMPTS} attempts. Last error: ${lastError}`,
+          });
+        }
+      }
+
+      return JSON.stringify({
+        success: false,
+        error: "Code execution failed",
+      });
+    }
+
     default:
       return JSON.stringify({
         status: "error",
         error: `Unknown internal tool: ${toolName}`,
       });
   }
+}
+
+// ── Code Auto-Debug Helper ──────────────────────────────────────────────────
+
+async function rewriteCodeAfterError(
+  originalCode: string,
+  errorMessage: string
+): Promise<string> {
+  const client = createAnthropicClient();
+  const model = ANTHROPIC_MODEL;
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    system:
+      "You are a code debugger. Fix the code based on the error message. " +
+      "Return ONLY the fixed code with no explanation, no markdown fences, no preamble.",
+    messages: [
+      {
+        role: "user",
+        content:
+          `Original code:\n\`\`\`\n${originalCode}\n\`\`\`\n\n` +
+          `Error:\n${errorMessage}\n\nReturn only the fixed code.`,
+      },
+    ],
+  });
+
+  const text = response.content.find((b) => b.type === "text");
+  if (text?.type === "text") {
+    return text.text
+      .replace(/^```\w*\n/, "")
+      .replace(/\n```$/, "")
+      .trim();
+  }
+  return originalCode;
 }
 
 // ── Topological Sort ─────────────────────────────────────────────────────────

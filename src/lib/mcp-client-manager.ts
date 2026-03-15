@@ -565,6 +565,7 @@ const INTERNAL_TOOLS = new Set<ToolId>([
   "schedule_trigger",
   "supabase_read",
   "supabase_write",
+  "execute_code",
 ]);
 
 export { INTERNAL_TOOLS };

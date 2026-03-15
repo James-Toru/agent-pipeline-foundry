@@ -54,7 +54,9 @@ export type ToolId =
   | "notion_append_content"
   | "notion_create_standalone_page"
   | "notion_search"
-  | "notion_check_exists";
+  | "notion_check_exists"
+  // Code Execution
+  | "execute_code";
 
 export type AgentArchetype =
   | "Ingestion"
@@ -397,6 +399,8 @@ const ToolIdSchema = z.enum([
   "notion_create_standalone_page",
   "notion_search",
   "notion_check_exists",
+  // Code Execution
+  "execute_code",
 ]);
 
 const KNOWN_ARCHETYPES = new Set<string>([

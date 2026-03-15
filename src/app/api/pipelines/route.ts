@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { validatePipelineSpec } from "@/lib/pipeline-validator";
+import { v4 as uuidv4 } from "uuid";
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,13 +26,16 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createSupabaseServerClient();
 
+    const newId = uuidv4();
+    const specWithId = { ...validation.spec, pipeline_id: newId };
+
     const { data, error } = await supabase
       .from("pipelines")
       .insert({
-        id: validation.spec.pipeline_id,
-        name: validation.spec.name,
-        description: validation.spec.description,
-        spec: validation.spec,
+        id: newId,
+        name: specWithId.name,
+        description: specWithId.description,
+        spec: specWithId,
       })
       .select()
       .single();

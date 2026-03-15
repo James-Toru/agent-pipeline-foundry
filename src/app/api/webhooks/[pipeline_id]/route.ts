@@ -85,22 +85,20 @@ export async function POST(
     const isDev = process.env.NODE_ENV === "development";
 
     if (vpsRelayUrl && !isDev) {
-      // Fire job to VPS relay — do not await the fetch
-      fetch(`${vpsRelayUrl}/relay`, {
+      // Fire job to VPS executor — do not await the fetch
+      fetch(`${vpsRelayUrl}/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-shared-secret": process.env.VPS_SHARED_SECRET!,
         },
         body: JSON.stringify({
-          pipelineId: pipeline_id,
-          runId: run.id,
-          inputs: {},
-          triggerType: "webhook",
-          webhookPayload: webhookBody,
+          run_id: run.id,
+          spec: pipeline.spec,
+          input_data: webhookBody,
         }),
       }).catch((err) => {
-        console.error("[Webhook] Failed to reach VPS relay:", err);
+        console.error("[Webhook] Failed to reach VPS executor:", err);
       });
 
       return NextResponse.json(
