@@ -17,6 +17,7 @@ import {
   braveWebSearch,
   braveScrapePage,
   braveWebResearch,
+  BraveToolError,
 } from "@/lib/integrations/brave-search";
 import {
   hubspotReadContacts,
@@ -46,22 +47,41 @@ import type { ToolId } from "@/types/pipeline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export type ToolErrorCategory = "service" | "request" | "config";
+
 export type ToolExecutionResult =
   | { success: true; result: string }
-  | { success: false; error: string; fallback: string };
+  | { success: false; error: string; fallback: string; errorCategory?: ToolErrorCategory };
 
-// ── Simulation Fallbacks ──────────────────────────────────────────────────────
+// ── Contextual Error Fallbacks ────────────────────────────────────────────────
 
-function getSimulationFallback(
+function getContextualFallback(
   toolId: ToolId,
-  _input: Record<string, unknown>
+  _input: Record<string, unknown>,
+  error: string,
+  category: ToolErrorCategory
 ): string {
-  return (
-    `ERROR: Tool "${toolId}" is unavailable. The required service is not configured. ` +
-    `Do NOT retry this tool — it will fail again. ` +
-    `Proceed with your task using the information you already have, ` +
-    `or produce your best output based on your own knowledge.`
-  );
+  switch (category) {
+    case "config":
+      return (
+        `ERROR: Tool "${toolId}" is unavailable. The required service is not configured. ` +
+        `Do NOT retry this tool — it will fail again. ` +
+        `Proceed with your task using the information you already have, ` +
+        `or produce your best output based on your own knowledge.`
+      );
+    case "service":
+      return (
+        `ERROR: Tool "${toolId}" encountered a service-level error: ${error}. ` +
+        `This affects ALL calls to this service — do NOT retry any variant of this tool. ` +
+        `Proceed using the information you already have.`
+      );
+    case "request":
+      return (
+        `ERROR: Tool "${toolId}" failed for this specific request: ${error}. ` +
+        `You may try this tool again with DIFFERENT inputs (e.g. a different URL or query). ` +
+        `Do not retry with the same inputs.`
+      );
+  }
 }
 
 // ── JSON Transform (local, no external dependency) ────────────────────────────
@@ -240,7 +260,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await gmailRead(input);
@@ -251,7 +272,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await gmailSend(input);
@@ -262,7 +284,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await gmailDraft(input);
@@ -274,7 +297,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await calendarRead(input);
@@ -285,7 +309,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await calendarWrite(input);
@@ -296,7 +321,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await calendarFindSlot(input);
@@ -308,7 +334,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await sheetsReadRows(input);
@@ -319,7 +346,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await sheetsWriteRows(input);
@@ -330,7 +358,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await sheetsUpdateCells(input);
@@ -341,7 +370,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await sheetsCreateSpreadsheet(input);
@@ -352,7 +382,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await sheetsSearch(input);
@@ -363,7 +394,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Google credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Google credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           result = await sheetsFormatCells(input);
@@ -434,7 +466,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Slack credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Slack credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           return await slackSendMessage(input as Parameters<typeof slackSendMessage>[0]);
@@ -444,7 +477,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Slack credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Slack credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           return await slackSendDM(input as Parameters<typeof slackSendDM>[0]);
@@ -454,7 +488,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Slack credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Slack credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           return await slackPostNotification(
@@ -466,7 +501,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Slack credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Slack credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           return await slackRequestApproval(
@@ -478,7 +514,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Slack credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Slack credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           return await slackCreateChannel(
@@ -490,7 +527,8 @@ export class MCPClientManager {
             return {
               success: false,
               error: "Slack credentials not configured",
-              fallback: getSimulationFallback(toolId, input),
+              fallback: getContextualFallback(toolId, input, "Slack credentials not configured", "config"),
+              errorCategory: "config" as ToolErrorCategory,
             };
           }
           return await slackReadMessages(
@@ -525,14 +563,16 @@ export class MCPClientManager {
           return {
             success: false,
             error: "Outlook integration is not implemented",
-            fallback: getSimulationFallback(toolId, input),
+            fallback: getContextualFallback(toolId, input, "Outlook integration is not implemented", "config"),
+            errorCategory: "config" as ToolErrorCategory,
           };
 
         default:
           return {
             success: false,
             error: `No handler registered for tool "${toolId}"`,
-            fallback: getSimulationFallback(toolId, input),
+            fallback: getContextualFallback(toolId, input, `No handler registered for tool "${toolId}"`, "config"),
+            errorCategory: "config" as ToolErrorCategory,
           };
       }
 
@@ -541,10 +581,15 @@ export class MCPClientManager {
       const errorMsg =
         err instanceof Error ? err.message : "Tool execution failed";
       console.error(`[Tools] Tool "${toolId}" failed:`, errorMsg);
+
+      const category: ToolErrorCategory =
+        err instanceof BraveToolError ? err.errorCategory : "request";
+
       return {
         success: false,
         error: errorMsg,
-        fallback: getSimulationFallback(toolId, input),
+        fallback: getContextualFallback(toolId, input, errorMsg, category),
+        errorCategory: category,
       };
     }
   }
@@ -566,6 +611,7 @@ const INTERNAL_TOOLS = new Set<ToolId>([
   "supabase_read",
   "supabase_write",
   "execute_code",
+  "retrieve_context",
 ]);
 
 export { INTERNAL_TOOLS };

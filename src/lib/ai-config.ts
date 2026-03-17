@@ -4,6 +4,9 @@ import { DEFAULT_MODEL_ID } from "@/lib/models";
 export const ANTHROPIC_MODEL: string =
   process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL_ID;
 
+// Fast, cheap model for mechanical tasks like context summarization
+export const SUMMARIZATION_MODEL = "claude-haiku-4-5-20251001";
+
 export const AnthropicConfig = {
   model: ANTHROPIC_MODEL,
   metaAgent: {

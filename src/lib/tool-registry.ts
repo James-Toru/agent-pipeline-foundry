@@ -809,6 +809,29 @@ export const TOOL_REGISTRY: Record<ToolId, AnthropicTool> = {
   // Code Execution
   execute_code: EXECUTE_CODE_TOOL_DEFINITION,
 
+  // Context Management
+  retrieve_context: {
+    name: "retrieve_context",
+    description:
+      "Retrieve the full, uncompressed output from a previous agent in the pipeline. " +
+      "Use this when the context summary provided is insufficient and you need the complete raw data. " +
+      "Specify the agent_id of the upstream agent whose full output you need.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_id: {
+          type: "string",
+          description: "The agent_id of the upstream agent whose full output you need",
+        },
+        context_key: {
+          type: "string",
+          description: "Optional: a specific key within the agent's output to retrieve",
+        },
+      },
+      required: ["agent_id"],
+    },
+  },
+
   // Utility
   human_approval_request: {
     name: "human_approval_request",

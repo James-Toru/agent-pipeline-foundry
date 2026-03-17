@@ -3,7 +3,7 @@ import { ANTHROPIC_MODEL, createAnthropicClient } from "@/lib/ai-config";
 import { resolveModel, getModelPricing } from "@/lib/models";
 import { getToolsForAgent } from "@/lib/tool-registry";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { MCPClientManager, INTERNAL_TOOLS } from "@/lib/mcp-client-manager";
+import { MCPClientManager, INTERNAL_TOOLS, type ToolExecutionResult, type ToolErrorCategory } from "@/lib/mcp-client-manager";
 import { isGoogleConfigured } from "@/lib/google-auth";
 import { isHubSpotConfigured } from "@/lib/hubspot-auth";
 import { isSlackConfigured, getSlackApprovalChannel } from "@/lib/slack-auth";
@@ -16,6 +16,7 @@ import {
   customToolToAnthropicFormat,
 } from "@/lib/custom-tool-executor";
 import { executeCodeTool } from "@/lib/tools/execute-code";
+import { ContextManager } from "@/lib/context-manager";
 import type { CustomTool, CustomIntegration } from "@/types/pipeline";
 import { sendErrorAlert, classifySeverity } from "@/lib/error-alerting";
 import {
@@ -59,6 +60,7 @@ interface RunContext {
   agent_outputs: Map<string, Record<string, unknown>>;
   mcpManager: MCPClientManager;
   customTools: (CustomTool & { integration: CustomIntegration })[];
+  contextManager: ContextManager;
 }
 
 // ── Token Cost Calculation ──────────────────────────────────────────────────
@@ -415,6 +417,12 @@ async function handleInternalTool(
       });
     }
 
+    case "retrieve_context": {
+      const agentId = input.agent_id as string;
+      const contextKey = input.context_key as string | undefined;
+      return ctx.contextManager.retrieveFullContext(agentId, contextKey);
+    }
+
     default:
       return JSON.stringify({
         status: "error",
@@ -456,6 +464,42 @@ async function rewriteCodeAfterError(
       .trim();
   }
   return originalCode;
+}
+
+// ── Output Validation ────────────────────────────────────────────────────────
+
+function validateAgentOutput(
+  output: Record<string, unknown>,
+  agentSpec: AgentSpec
+): { valid: boolean; reason: string } {
+  // Check for max iterations failure
+  const rawOutput = output["raw_output"] ?? output["_raw"];
+  if (
+    typeof rawOutput === "string" &&
+    rawOutput.includes("maximum tool-call iterations")
+  ) {
+    return {
+      valid: false,
+      reason:
+        "Agent hit tool-call iteration limit without producing structured output",
+    };
+  }
+
+  // Check if all output fields are identical (wrapping artifact)
+  const outputKeys = Object.keys(agentSpec.outputs);
+  if (outputKeys.length > 1) {
+    const values = outputKeys.map((k) => JSON.stringify(output[k]));
+    const allSame = values.every((v) => v === values[0]);
+    if (allSame && typeof output[outputKeys[0]] === "string") {
+      return {
+        valid: false,
+        reason:
+          "All output fields contain identical raw text — agent did not produce structured data",
+      };
+    }
+  }
+
+  return { valid: true, reason: "" };
 }
 
 // ── Topological Sort ─────────────────────────────────────────────────────────
@@ -543,7 +587,7 @@ function topologicalSort(spec: PipelineSpec): string[][] {
 // ── JSON Extraction Helper ──────────────────────────────────────────────────
 
 function extractJson(text: string): Record<string, unknown> | null {
-  // Try direct parse first
+  // Try direct parse first (with markdown fence cleanup)
   try {
     const cleaned = text
       .replace(/^```json\s*/i, "")
@@ -555,13 +599,27 @@ function extractJson(text: string): Record<string, unknown> | null {
     // ignore
   }
 
-  // Try to find the largest {...} block in the text
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[0]);
-    } catch {
-      // ignore
+  // Find valid JSON blocks using balanced brace matching — try each opening brace
+  const openBraces: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "{") openBraces.push(i);
+  }
+
+  for (const start of openBraces) {
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = text.slice(start, i + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch {
+            break; // This opening brace didn't yield valid JSON
+          }
+        }
+      }
     }
   }
 
@@ -574,24 +632,12 @@ async function executeAgent(
   agentSpec: AgentSpec,
   ctx: RunContext
 ): Promise<AgentResult> {
-  // Step 1: Start with the original pipeline input data
-  const resolvedInputData: Record<string, unknown> = {
-    ...ctx.input_data,
-  };
-
-  // Step 2: Merge ALL outputs from every completed upstream agent.
-  // This ensures every agent has access to all previous results
-  // regardless of how the agentSpec.inputs keys are named.
-  for (const [agentId, agentOutput] of ctx.agent_outputs) {
-    // Merge output fields directly so agents access them by name,
-    // e.g. email_body, subject_line, validation_status
-    if (agentOutput && typeof agentOutput === "object") {
-      Object.assign(resolvedInputData, agentOutput);
-    }
-    // Also keep namespaced copy for explicit access,
-    // e.g. contact_data_validator.validation_status
-    resolvedInputData[agentId] = agentOutput;
-  }
+  // Build compact context: pipeline inputs + summarized upstream outputs
+  const resolvedInputData = ctx.contextManager.getCompactContext(
+    agentSpec,
+    ctx.input_data,
+    ctx.agent_outputs
+  );
 
   const messageId = await createAgentMessage(
     ctx.run_id,
@@ -624,12 +670,26 @@ async function executeAgent(
       ...customToolDefs,
     ] as Anthropic.Tool[];
 
+    // Inject retrieve_context tool if compressed upstream data exists
+    if (
+      ctx.contextManager.hasCompressedData() &&
+      !tools.some((t) => t.name === "retrieve_context")
+    ) {
+      const retrieveContextTools = getToolsForAgent(["retrieve_context"]);
+      tools.push(...(retrieveContextTools as Anthropic.Tool[]));
+    }
+
     const timeoutMs = agentSpec.guardrails.max_runtime_seconds * 1000;
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
     let toolCallCount = 0;
+    // Two-tier failure tracking: service-level blocks all calls, request-level blocks specific inputs
+    const serviceBlockedTools = new Set<string>();
+    const requestFailures = new Set<string>();
+    const requestFailureCounts = new Map<string, number>();
+    const MAX_REQUEST_FAILURES_PER_TOOL = 5;
 
     const agentCall = async () => {
       const messages: MessageParam[] = [
@@ -642,8 +702,7 @@ async function executeAgent(
               "Do NOT simulate, describe, or reason about what a tool would return — actually call it. " +
               "Every page ID, message timestamp, and confirmation you include in your output must come from a real tool call result.",
             pipeline_inputs: ctx.input_data,
-            upstream_outputs: Object.fromEntries(ctx.agent_outputs),
-            all_available_data: resolvedInputData,
+            context: resolvedInputData,
             required_output_fields: agentSpec.outputs,
             critical_instruction:
               "After completing all tool calls, return a JSON object with all required output fields " +
@@ -651,16 +710,25 @@ async function executeAgent(
               "Use the actual IDs, URLs, and responses returned by the tools. " +
               "If a tool returns an error, include that error in your output — do not invent a success response. " +
               "Your entire final response must be parseable by JSON.parse().",
+            ...(ctx.contextManager.hasCompressedData()
+              ? {
+                  context_note:
+                    "Some upstream agent outputs have been summarized to save tokens. " +
+                    "If you need the full raw data from a previous agent, use the retrieve_context tool with that agent's ID.",
+                }
+              : {}),
           }),
         },
       ];
 
       let iterations = 0;
       const maxIterations = 10;
+      const MAX_TOOL_CALLS = 25;
+      let forcedStop = false;
       let rateLimitRetries = 0;
       const maxRateLimitRetries = 3;
 
-      while (iterations < maxIterations) {
+      while (iterations < maxIterations && !forcedStop) {
         iterations++;
 
         // Throttle API calls to avoid Anthropic rate limits
@@ -735,14 +803,62 @@ async function executeAgent(
           if (parsed) {
             output = parsed;
           } else {
+            // Try recovery: ask the model to reformat as JSON
             console.warn(
-              `[Orchestrator] Agent ${agentSpec.agent_id} returned non-JSON. Wrapping in structured output.`
+              `[Orchestrator] Agent ${agentSpec.agent_id} returned non-JSON. Attempting recovery.`
             );
-            output = {};
-            for (const fieldName of Object.keys(agentSpec.outputs)) {
-              output[fieldName] = rawOutput;
+
+            try {
+              const recoveryResponse = await client.messages.create({
+                model: agentModel,
+                max_tokens: agentSpec.guardrails.max_tokens ?? 4096,
+                temperature: 0,
+                system:
+                  "Convert the following text into a valid JSON object. Extract all data and structure it with these fields: " +
+                  Object.keys(agentSpec.outputs).join(", ") +
+                  ". Return ONLY valid JSON, no markdown fences, no explanation.",
+                messages: [{ role: "user", content: rawOutput.slice(0, 8000) }],
+              });
+
+              if (recoveryResponse.usage) {
+                totalInputTokens += recoveryResponse.usage.input_tokens;
+                totalOutputTokens += recoveryResponse.usage.output_tokens;
+              }
+
+              const recoveryText = recoveryResponse.content.find(
+                (b): b is Anthropic.TextBlock => b.type === "text"
+              );
+              const recovered = recoveryText
+                ? extractJson(recoveryText.text)
+                : null;
+
+              if (recovered) {
+                console.log(
+                  `[Orchestrator] Recovery successful for ${agentSpec.agent_id}`
+                );
+                output = recovered;
+              } else {
+                // Final fallback: wrap raw text
+                output = {};
+                for (const fieldName of Object.keys(agentSpec.outputs)) {
+                  output[fieldName] = rawOutput;
+                }
+                output["_raw"] = rawOutput;
+              }
+            } catch (recoveryErr) {
+              console.warn(
+                `[Orchestrator] Recovery call failed for ${agentSpec.agent_id}:`,
+                recoveryErr instanceof Error
+                  ? recoveryErr.message
+                  : recoveryErr
+              );
+              // Final fallback: wrap raw text
+              output = {};
+              for (const fieldName of Object.keys(agentSpec.outputs)) {
+                output[fieldName] = rawOutput;
+              }
+              output["_raw"] = rawOutput;
             }
-            output["_raw"] = rawOutput;
           }
 
           return output;
@@ -762,14 +878,86 @@ async function executeAgent(
           let resultContent: string;
 
           toolCallCount++;
+
+          // If we've already hit the cap, return a skip result for remaining tool calls
+          // (must still provide tool_result for every tool_use to satisfy API contract)
+          if (forcedStop) {
+            toolResults.push({
+              type: "tool_result" as const,
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                status: "skipped",
+                reason: "Tool call limit reached. No more tools will be executed.",
+              }),
+            });
+            continue;
+          }
+
+          // Skip tools blocked at service level (402 quota, auth failure)
+          if (serviceBlockedTools.has(toolId)) {
+            console.warn(
+              `[Orchestrator] Skipping tool "${toolId}" — service-level failure (blocked for this run)`
+            );
+            toolResults.push({
+              type: "tool_result" as const,
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                status: "blocked",
+                error: `Tool "${toolId}" is blocked due to a service-level error (e.g., quota exhausted). Do NOT retry. Use the data you already have.`,
+              }),
+            });
+            continue;
+          }
+
+          // Skip exact same request that already failed
+          const reqKey = `${toolId}:${String(toolInput.url ?? toolInput.query ?? JSON.stringify(toolInput))}`;
+          if (requestFailures.has(reqKey)) {
+            toolResults.push({
+              type: "tool_result" as const,
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                status: "blocked",
+                error: `This exact "${toolId}" request already failed. Try different inputs or proceed without this data.`,
+              }),
+            });
+            continue;
+          }
+
+          // Safety valve: too many distinct request failures for this tool
+          const toolReqFailCount = requestFailureCounts.get(toolId) ?? 0;
+          if (toolReqFailCount >= MAX_REQUEST_FAILURES_PER_TOOL) {
+            console.warn(
+              `[Orchestrator] Skipping tool "${toolId}" — ${toolReqFailCount} different requests have failed`
+            );
+            toolResults.push({
+              type: "tool_result" as const,
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                status: "blocked",
+                error: `Tool "${toolId}" has failed on ${toolReqFailCount} different requests. It appears unreliable. Use the data you already have.`,
+              }),
+            });
+            continue;
+          }
+
           console.log(
             `[Orchestrator] Agent ${agentSpec.agent_id} calling tool: ${toolId}`,
             JSON.stringify(toolInput).substring(0, 300)
           );
 
-          if (INTERNAL_TOOLS.has(toolId)) {
+          // Track error category from MCP results for two-tier failure tracking
+          let lastErrorCategory: ToolErrorCategory | undefined;
+
+          // Check tool result cache first (saves tokens on retries)
+          const cachedResult = ctx.contextManager.getCachedToolResult(toolId, toolInput);
+          if (cachedResult) {
+            console.log(`[Orchestrator] Using cached result for tool: ${toolId}`);
+            resultContent = ctx.contextManager.compressToolResult(toolId, cachedResult);
+          } else if (INTERNAL_TOOLS.has(toolId)) {
             // Handle internally — bypass MCP
             resultContent = await handleInternalTool(toolId, toolInput, ctx);
+            ctx.contextManager.cacheToolResult(toolId, toolInput, resultContent);
+            resultContent = ctx.contextManager.compressToolResult(toolId, resultContent);
           } else if (toolId.startsWith("custom_")) {
             // Execute custom API tool
             const customTool = await getCustomToolByName(toolId);
@@ -786,9 +974,11 @@ async function executeAgent(
                 error: `Custom tool "${toolId}" not found`,
               });
             }
+            ctx.contextManager.cacheToolResult(toolId, toolInput, resultContent);
+            resultContent = ctx.contextManager.compressToolResult(toolId, resultContent);
           } else {
             // Execute via MCP client manager
-            const mcpResult = await ctx.mcpManager.executeTool(
+            const mcpResult: ToolExecutionResult = await ctx.mcpManager.executeTool(
               toolId,
               toolInput
             );
@@ -799,6 +989,25 @@ async function executeAgent(
                 `[Orchestrator] Tool "${toolId}" failed: ${mcpResult.error}`
               );
               resultContent = mcpResult.fallback;
+              lastErrorCategory = mcpResult.errorCategory;
+            }
+            ctx.contextManager.cacheToolResult(toolId, toolInput, resultContent);
+            resultContent = ctx.contextManager.compressToolResult(toolId, resultContent);
+          }
+
+          // Two-tier failure tracking
+          if (
+            resultContent.includes('"status":"error"') ||
+            resultContent.startsWith("ERROR:")
+          ) {
+            if (lastErrorCategory === "service" || lastErrorCategory === "config") {
+              serviceBlockedTools.add(toolId);
+              console.warn(
+                `[Orchestrator] Tool "${toolId}" blocked for remainder of run (${lastErrorCategory}-level failure)`
+              );
+            } else {
+              requestFailures.add(reqKey);
+              requestFailureCounts.set(toolId, (requestFailureCounts.get(toolId) ?? 0) + 1);
             }
           }
 
@@ -812,9 +1021,61 @@ async function executeAgent(
             tool_use_id: block.id,
             content: resultContent,
           });
+
+          // Cap total tool calls per agent
+          if (toolCallCount >= MAX_TOOL_CALLS) {
+            console.warn(
+              `[Orchestrator] Agent ${agentSpec.agent_id} hit max tool calls (${MAX_TOOL_CALLS}). Forcing final output.`
+            );
+            forcedStop = true;
+          }
         }
 
-        messages.push({ role: "user", content: toolResults });
+        // Push tool results to messages — include stop instruction as text block if forced
+        const userContent: (Anthropic.ToolResultBlockParam | Anthropic.TextBlockParam)[] = [
+          ...toolResults,
+        ];
+        if (forcedStop) {
+          userContent.push({
+            type: "text" as const,
+            text:
+              "STOP. You have reached the maximum number of tool calls (" +
+              MAX_TOOL_CALLS +
+              "). You MUST now return your final JSON output using ONLY the data you have already collected. " +
+              "Do NOT call any more tools. Return a valid JSON object with all required output fields.",
+          });
+        }
+        messages.push({ role: "user", content: userContent });
+
+        // If forced stop, make one final API call to get structured output
+        if (forcedStop) {
+          try {
+            const finalResponse = await client.messages.create({
+              model: agentModel,
+              max_tokens: agentSpec.guardrails.max_tokens ?? 4096,
+              temperature: agentSpec.guardrails.temperature ?? 0.3,
+              system: agentSpec.system_prompt,
+              messages,
+            });
+
+            if (finalResponse.usage) {
+              totalInputTokens += finalResponse.usage.input_tokens;
+              totalOutputTokens += finalResponse.usage.output_tokens;
+            }
+
+            const textBlock = finalResponse.content.find(
+              (b): b is Anthropic.TextBlock => b.type === "text"
+            );
+            if (textBlock) {
+              return { raw_output: textBlock.text };
+            }
+          } catch (err) {
+            console.error(
+              `[Orchestrator] Final forced output call failed:`,
+              err instanceof Error ? err.message : err
+            );
+          }
+        }
       }
 
       return { raw_output: "Agent reached maximum tool-call iterations" };
@@ -1063,29 +1324,58 @@ async function executeAgentWithRetry(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
-    const result = await executeAgent(agentSpec, ctx);
+    let result = await executeAgent(agentSpec, ctx);
 
     if (result.status === "completed") {
-      if (agentSpec.requires_approval && result.output) {
-        const decision = await handleApprovalGate(agentSpec, result.output, ctx);
-        if (decision === "rejected" || decision === "timeout") {
-          return {
-            agent_id: agentSpec.agent_id,
+      // Validate output quality before accepting
+      if (result.output) {
+        const outputCheck = validateAgentOutput(result.output, agentSpec);
+        if (!outputCheck.valid) {
+          console.warn(
+            `[Orchestrator] Agent ${agentSpec.agent_id} output invalid: ${outputCheck.reason}`
+          );
+          // Treat as failed — fall through to retry/failure logic
+          result = {
+            ...result,
             status: "failed",
-            output: null,
-            error:
-              decision === "rejected"
-                ? "Approval rejected by human reviewer"
-                : "Approval request timed out",
+            error: outputCheck.reason,
           };
+          // Fall through to applyFailurePolicy below
         }
       }
 
-      if (result.output) {
-        ctx.agent_outputs.set(agentSpec.agent_id, result.output);
-      }
+      if (result.status === "completed") {
+        if (agentSpec.requires_approval && result.output) {
+          const decision = await handleApprovalGate(
+            agentSpec,
+            result.output,
+            ctx
+          );
+          if (decision === "rejected" || decision === "timeout") {
+            return {
+              agent_id: agentSpec.agent_id,
+              status: "failed",
+              output: null,
+              error:
+                decision === "rejected"
+                  ? "Approval rejected by human reviewer"
+                  : "Approval request timed out",
+            };
+          }
+        }
 
-      return result;
+        if (result.output) {
+          // Summarize output for downstream agents (token optimization)
+          await ctx.contextManager.summarizeAgentOutput(
+            agentSpec.agent_id,
+            result.output,
+            agentSpec
+          );
+          ctx.agent_outputs.set(agentSpec.agent_id, result.output);
+        }
+
+        return result;
+      }
     }
 
     const action = await applyFailurePolicy(
@@ -1186,6 +1476,8 @@ export async function runPipeline(
     customTools = await getCustomTools();
   }
 
+  const contextManager = new ContextManager();
+
   const ctx: RunContext = {
     run_id,
     pipeline,
@@ -1193,6 +1485,7 @@ export async function runPipeline(
     agent_outputs: new Map(),
     mcpManager,
     customTools,
+    contextManager,
   };
 
   const startTime = Date.now();
@@ -1206,6 +1499,7 @@ export async function runPipeline(
 
     const agentMap = new Map(pipeline.agents.map((a) => [a.agent_id, a]));
     const layers = topologicalSort(pipeline);
+    const failedAgents = new Set<string>();
 
     for (const layer of layers) {
       if (layer.length === 0) continue;
@@ -1230,8 +1524,39 @@ export async function runPipeline(
 
       if (agents.length === 0) continue;
 
-      if (agents.length === 1) {
-        const result = await executeAgentWithRetry(agents[0], ctx);
+      // Filter out agents whose upstream dependencies have failed
+      const runnableAgents = agents.filter((a) => {
+        const upstreamDeps = pipeline.orchestration.flow
+          .filter((edge) => edge.to === a.agent_id)
+          .map((edge) => edge.from);
+
+        const failedDep = upstreamDeps.find((dep) => failedAgents.has(dep));
+        if (failedDep) {
+          console.warn(
+            `[Orchestrator] Skipping "${a.agent_id}" — upstream dependency "${failedDep}" failed`
+          );
+          failedAgents.add(a.agent_id);
+          // Record the skip in the database
+          createAgentMessage(run_id, a.agent_id, "failed", null).then(
+            (msgId) => {
+              if (msgId) {
+                updateAgentMessage(msgId, {
+                  status: "failed",
+                  error: `Skipped: upstream agent "${failedDep}" failed`,
+                  completed_at: new Date().toISOString(),
+                });
+              }
+            }
+          );
+          return false;
+        }
+        return true;
+      });
+
+      if (runnableAgents.length === 0) continue;
+
+      if (runnableAgents.length === 1) {
+        const result = await executeAgentWithRetry(runnableAgents[0], ctx);
 
         if (result.token_usage) {
           runTotalTokens += result.token_usage.input_tokens + result.token_usage.output_tokens;
@@ -1239,7 +1564,8 @@ export async function runPipeline(
         }
 
         if (result.status === "failed") {
-          const severity = classifySeverity(agents[0].on_failure, agents[0].on_failure === "halt_pipeline");
+          failedAgents.add(result.agent_id);
+          const severity = classifySeverity(runnableAgents[0].on_failure, runnableAgents[0].on_failure === "halt_pipeline");
           await sendErrorAlert({
             run_id,
             pipeline_name: pipeline.name,
@@ -1248,7 +1574,7 @@ export async function runPipeline(
             severity,
           });
 
-          if (agents[0].on_failure === "halt_pipeline") {
+          if (runnableAgents[0].on_failure === "halt_pipeline") {
             const durationMs = Date.now() - startTime;
             await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
             const haltError = PipelineErrors.toolExecutionFailed(
@@ -1262,7 +1588,7 @@ export async function runPipeline(
         }
       } else {
         const results = await Promise.all(
-          agents.map((a) => executeAgentWithRetry(a, ctx))
+          runnableAgents.map((a) => executeAgentWithRetry(a, ctx))
         );
 
         for (const result of results) {
@@ -1274,7 +1600,8 @@ export async function runPipeline(
 
         for (let i = 0; i < results.length; i++) {
           if (results[i].status === "failed") {
-            const severity = classifySeverity(agents[i].on_failure, agents[i].on_failure === "halt_pipeline");
+            failedAgents.add(results[i].agent_id);
+            const severity = classifySeverity(runnableAgents[i].on_failure, runnableAgents[i].on_failure === "halt_pipeline");
             await sendErrorAlert({
               run_id,
               pipeline_name: pipeline.name,
@@ -1283,7 +1610,7 @@ export async function runPipeline(
               severity,
             });
 
-            if (agents[i].on_failure === "halt_pipeline") {
+            if (runnableAgents[i].on_failure === "halt_pipeline") {
               const durationMs = Date.now() - startTime;
               await updateRunAnalytics(run_id, runTotalTokens, runTotalCost, durationMs);
               const haltError = PipelineErrors.toolExecutionFailed(

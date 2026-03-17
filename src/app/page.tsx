@@ -66,6 +66,7 @@ function GeneratePageInner() {
   const [isSaving, setIsSaving] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [savedPipelineId, setSavedPipelineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProgressState | null>(null);
 
@@ -208,6 +209,8 @@ function GeneratePageInner() {
       });
 
       if (res.ok) {
+        const saved = await res.json();
+        setSavedPipelineId(saved.id);
         setSaveSuccess(true);
       } else {
         const data = await res.json();
@@ -599,7 +602,7 @@ function GeneratePageInner() {
                     Pipeline &ldquo;{result.spec.name}&rdquo; saved successfully.
                   </div>
                   <Link
-                    href={`/pipelines/${result.spec.pipeline_id}`}
+                    href={`/pipelines/${savedPipelineId}`}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-b from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 px-6 py-3 text-sm font-medium text-white ring-1 ring-white/8 shadow-lg transition-all duration-200"
                   >
                     Inspect Pipeline

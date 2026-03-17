@@ -56,7 +56,9 @@ export type ToolId =
   | "notion_search"
   | "notion_check_exists"
   // Code Execution
-  | "execute_code";
+  | "execute_code"
+  // Context Management
+  | "retrieve_context";
 
 export type AgentArchetype =
   | "Ingestion"
@@ -401,6 +403,8 @@ const ToolIdSchema = z.enum([
   "notion_check_exists",
   // Code Execution
   "execute_code",
+  // Context Management
+  "retrieve_context",
 ]);
 
 const KNOWN_ARCHETYPES = new Set<string>([
